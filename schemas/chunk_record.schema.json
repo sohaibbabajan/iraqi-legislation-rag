@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sohaibbabajan/iraqi-legislation-rag/schemas/chunk_record.schema.json",
+  "title": "IraqiLegislationChunkRecord",
+  "description": "One embeddable chunk as written to LanceDB (field names match the planned ingest port). Documented now; populated in Phase 2.",
+  "type": "object",
+  "required": [
+    "chunk_id",
+    "law_book_id",
+    "title",
+    "status_label",
+    "text"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "chunk_id": {
+      "description": "Stable id: \"{lawBookID}#{n}\".",
+      "type": "string",
+      "pattern": "^.+#\\d+$"
+    },
+    "law_book_id": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string" },
+    "category": { "type": "string" },
+    "law_index": { "type": "string" },
+    "status_label": {
+      "type": "string",
+      "enum": ["ساري", "ملغى"]
+    },
+    "law_valid": { "type": "string" },
+    "law_flag": { "type": "string" },
+    "year": { "type": "string" },
+    "date_iso": { "type": "string" },
+    "source_url": { "type": "string" },
+    "pdf_url": { "type": "string" },
+    "text": {
+      "description": "Chunk body that gets embedded.",
+      "type": "string",
+      "minLength": 1
+    },
+    "article_nums": {
+      "description": "Padded ASCII article list, e.g. ',438,439,'.",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sohaibbabajan/iraqi-legislation-rag/schemas/law_record.schema.json",
+  "title": "IraqiLegislationLawRecord",
+  "description": "One normalized law/record as stored in sources/*.jsonl (compatible with the Masadir ingest pipeline field names).",
+  "type": "object",
+  "required": [
+    "lawBookID",
+    "lawTitle",
+    "full_text",
+    "status_label"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "lawBookID": {
+      "description": "Stable numeric id from the source legislation catalog.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "lawTitle": {
+      "description": "Official or catalog title (Arabic).",
+      "type": "string",
+      "minLength": 1
+    },
+    "lawYear": {
+      "description": "Enactment year as string or int (ingest coerces to string).",
+      "type": ["string", "integer", "null"]
+    },
+    "lawDate": {
+      "description": "Display date string from the source site (often Arabic-Indic digits).",
+      "type": ["string", "null"]
+    },
+    "date_iso": {
+      "description": "Normalized ISO date YYYY-MM-DD when known.",
+      "type": ["string", "null"],
+      "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "status_label": {
+      "description": "In-force vs repealed label used for default retrieval filtering.",
+      "type": "string",
+      "enum": ["ساري", "ملغى"]
+    },
+    "lawValid": {
+      "description": "Source validity flag (Y/N).",
+      "type": ["string", "null"],
+      "enum": ["Y", "N", null]
+    },
+    "lawFlag": {
+      "description": "Amendment / amended / repealed marker; empty when none.",
+      "type": ["string", "null"]
+    },
+    "full_text": {
+      "description": "Extracted body text. May be empty for image-only PDFs (those are skipped at ingest).",
+      "type": "string"
+    },
+    "full_text_len": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "category": {
+      "type": ["string", "null"]
+    },
+    "classification": {
+      "type": ["string", "null"]
+    },
+    "lawIndex": {
+      "description": "Subject-area index label.",
+      "type": ["string", "null"]
+    },
+    "lawNotes": {
+      "description": "Free-text notes (e.g. repeal pointers).",
+      "type": ["string", "null"]
+    },
+    "lawCode": {
+      "type": ["string", "null"]
+    },
+    "lawDoc": {
+      "type": ["string", "null"]
+    },
+    "lawImage": {
+      "type": ["string", "null"]
+    },
+    "country": {
+      "type": ["string", "null"]
+    },
+    "source_url": {
+      "type": ["string", "null"]
+    },
+    "pdf_url": {
+      "type": ["string", "null"]
+    },
+    "articles": {
+      "description": "Optional structured articles payload from the source; usually null.",
+      "type": ["array", "object", "null"]
+    },
+    "groupsNewsDate": { "type": ["string", "null"] },
+    "groupsNewsNum": { "type": ["string", "null"] },
+    "groupsNewsPage": { "type": ["string", "null"] },
+    "tacksNewsDate": { "type": ["string", "null"] },
+    "tacksNewsNum": { "type": ["string", "null"] },
+    "tacksNewsPage": { "type": ["string", "null"] },
+    "tacksPageCount": { "type": ["string", "null"] },
+    "tacksPartNum": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,31 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.env
+.env.*
+!.env.example
+
+cache/
+lancedb/
+*.lance
+
+# Full corpus lives outside git (Releases / HF). Keep the sample fixture.
+sources/*.jsonl
+!sources/sample_laws.jsonl
+sources/*.json
+!sources/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
