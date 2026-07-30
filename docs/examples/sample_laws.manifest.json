@@ -1,0 +1,32 @@
+{
+  "schema": "iraqi-legislation-rag.corpus_manifest/v1",
+  "corpus_version": "0.1.0-sample",
+  "scrape_date": "2026-07-31",
+  "packaged_at": "2026-07-30T22:04:05Z",
+  "file": {
+    "name": "sample_laws.jsonl",
+    "path_hint": "sample_laws.jsonl",
+    "size_bytes": 30657,
+    "sha256": "bf2c36d8a4086468a116d03140a771c5a45501b5b276465e4eee7b3839b1cd01"
+  },
+  "counts": {
+    "record_count": 35,
+    "records_with_text": 34,
+    "records_empty_text": 1,
+    "lawBookID_min": 90001,
+    "lawBookID_max": 90035,
+    "status_label_counts": {
+      "ساري": 33,
+      "ملغى": 2
+    },
+    "lawYear_distinct": 28
+  },
+  "source": {
+    "site": "https://iraqld.e-sjc-services.iq/",
+    "note": "Synthetic CI fixture — not real statutes. Dry-run of the public release packaging process."
+  },
+  "compatibility": {
+    "law_record_schema": "schemas/law_record.schema.json",
+    "ingest": "python ingest.py --api --source <this.jsonl>"
+  }
+}

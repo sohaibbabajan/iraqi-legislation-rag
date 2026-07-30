@@ -23,6 +23,16 @@ sources/*.jsonl
 sources/*.json
 !sources/.gitkeep
 
+# Scraper resume + large release artifacts (manifests under docs/examples/ are OK)
+releases/*.jsonl
+releases/*.sha256
+!releases/.gitkeep
+!docs/examples/*.manifest.json
+!docs/examples/*.sha256
+# Example manifests that point at unpublished private snapshots stay local:
+releases/*.manifest.example.json
+releases/laws_master.manifest.json
+
 # OS / editor
 .DS_Store
 Thumbs.db

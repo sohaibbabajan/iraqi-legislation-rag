@@ -91,8 +91,24 @@ setup_store.py                   ingest → FTS → routes
 eval_recall.py                   recall@k (no answer LLM)
 rag_service.py / web/app.py      shared engine + thin FastAPI
 schemas/ + sources/sample_*.jsonl
-scraper/                         Phase 3 (releases preferred)
+scraper/                         maintainer scrape (releases preferred)
+scripts/package_corpus_release.py
 ```
+
+## Scraper / corpus releases
+
+**Most users should download a JSONL release**, not scrape. iraqld sits behind
+Cloudflare; unattended cron is **not** a supported guarantee — see
+[docs/SCRAPING.md](docs/SCRAPING.md).
+
+```powershell
+python -m scraper probe                          # live CF honesty check
+python -m scraper scrape --limit 5 -o sources/scrape_smoke.jsonl
+python scripts/package_corpus_release.py sources/sample_laws.jsonl `
+  --corpus-version 0.1.0-sample --out-dir docs/examples
+```
+
+Maintainer docs: [scraper/README.md](scraper/README.md).
 
 ## Tests / CI
 

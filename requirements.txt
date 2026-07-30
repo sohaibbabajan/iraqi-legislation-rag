@@ -11,6 +11,9 @@ pydantic>=2.0.0
 jsonschema>=4.22.0
 pytest>=8.0.0
 
+# Optional — only for `python -m scraper --mode playwright`
+# playwright>=1.40.0
+
 # --- Optional: local-GPU embedding (ingest / ask without --api) ---
 # sentence-transformers>=3.0.0
 # transformers>=4.39.0
