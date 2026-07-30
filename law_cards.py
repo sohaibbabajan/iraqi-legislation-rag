@@ -13,10 +13,14 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from pathlib import Path
 from typing import Any, Iterable
 
 from common import ALIAS_LEXICON_FILE, LAW_CARDS_FILE, normalize_ar
+
+# Serialize JSONL appends when build_law_cards runs with ThreadPoolExecutor.
+_APPEND_LOCK = threading.Lock()
 
 # JSON Schema for OpenRouter structured outputs / local validation.
 LAW_CARD_JSON_SCHEMA: dict[str, Any] = {
@@ -292,14 +296,16 @@ def existing_card_ids(path: Path = LAW_CARDS_FILE) -> set[int]:
 def append_law_card(card: dict, path: Path = LAW_CARDS_FILE) -> None:
     validate_card(card)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(card, ensure_ascii=False) + "\n")
-    # Invalidate caches so subsequent loads see the new row
-    global _CARDS_BY_ID, _CARDS_CACHE_PATH, _LEXICON_CACHE, _LEXICON_CACHE_PATH
-    _CARDS_BY_ID = None
-    _CARDS_CACHE_PATH = None
-    _LEXICON_CACHE = None
-    _LEXICON_CACHE_PATH = None
+    line = json.dumps(card, ensure_ascii=False) + "\n"
+    with _APPEND_LOCK:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line)
+        # Invalidate caches so subsequent loads see the new row
+        global _CARDS_BY_ID, _CARDS_CACHE_PATH, _LEXICON_CACHE, _LEXICON_CACHE_PATH
+        _CARDS_BY_ID = None
+        _CARDS_CACHE_PATH = None
+        _LEXICON_CACHE = None
+        _LEXICON_CACHE_PATH = None
 
 
 def cards_to_lexicon_rows(cards: Iterable[dict]) -> list[dict]:

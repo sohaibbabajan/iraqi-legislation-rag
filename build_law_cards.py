@@ -10,10 +10,12 @@ CRITICAL: these artifacts are for routing/UI only. Never inject cards into
 the answer LLM context (see law_cards.py / docs/ARCHITECTURE.md).
 
 Resumable by law_book_id (skips ids already in the cards file).
+Concurrent by default (--workers 8); drop to 4 if OpenRouter 429s pile up.
 
     python build_law_cards.py --sample
     python build_law_cards.py --limit 20
     python build_law_cards.py --priority --limit 100
+    python build_law_cards.py --workers 8
     python build_law_cards.py --rebuild-lexicon-only
 """
 
@@ -23,7 +25,9 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -55,6 +59,8 @@ from law_registry import iter_law_records
 _SIBLING_MASTER = Path(r"C:\iraqi-law-rag\sources\laws_master.jsonl")
 _SIBLING_ENV = Path(r"C:\iraqi-law-rag\.env")
 
+_LOG_LOCK = threading.Lock()
+
 
 def _bootstrap_env() -> None:
     load_dotenv()
@@ -67,7 +73,8 @@ _bootstrap_env()
 
 
 def _log(msg: str) -> None:
-    print(msg, flush=True)
+    with _LOG_LOCK:
+        print(msg, flush=True)
 
 
 def resolve_source(*, sample: bool, source: str | None) -> Path:
@@ -182,6 +189,17 @@ def _chat_json(
     return "", None, f"failed after retries: {last_err}"
 
 
+def _make_session(api_key: str) -> requests.Session:
+    session = requests.Session()
+    session.headers.update({
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/sohaibbabajan/iraqi-legislation-rag",
+        "X-Title": "iraqi-legislation-rag law cards",
+    })
+    return session
+
+
 def generate_card(
     session: requests.Session,
     rec: dict,
@@ -219,6 +237,42 @@ def generate_card(
     return None, cost, pin, pout
 
 
+def _process_one(
+    rec: dict,
+    *,
+    index: int,
+    total: int,
+    models: list[str],
+    api_key: str,
+    cards_path: Path,
+    sleep_s: float,
+) -> tuple[bool, float, int, int]:
+    """
+    One worker task. Own Session (requests.Session is not thread-safe).
+    Returns (ok, cost, prompt_tokens, completion_tokens).
+    """
+    lid = int(rec.get("lawBookID") or 0)
+    title = (rec.get("lawTitle") or "")[:60]
+    _log(f"[{index}/{total}] {lid} {title}")
+    session = _make_session(api_key)
+    try:
+        card, cost, pin, pout = generate_card(session, rec, models)
+    finally:
+        session.close()
+    if card is None:
+        _log(f"  FAILED {lid}")
+        return False, cost, pin, pout
+    append_law_card(card, cards_path)
+    n_alias = len(card.get("colloquial_aliases") or [])
+    _log(
+        f"  ok {lid} tags={len(card['subject_tags'])} aliases={n_alias} "
+        f"cost=${cost:.6f} tok={pin}/{pout}"
+    )
+    if sleep_s > 0:
+        time.sleep(sleep_s)
+    return True, cost, pin, pout
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Build LLM law cards + alias lexicon (routing/UI only)."
@@ -235,8 +289,11 @@ def main() -> None:
                     help="cards JSONL path")
     ap.add_argument("--lexicon-out", default=str(ALIAS_LEXICON_FILE),
                     help="alias lexicon JSONL path")
-    ap.add_argument("--sleep", type=float, default=0.15,
-                    help="seconds between successful API calls")
+    ap.add_argument("--sleep", type=float, default=0.0,
+                    help="seconds sleep after each successful call "
+                         "(default 0; use ~0.15 only for --workers 1)")
+    ap.add_argument("--workers", type=int, default=8,
+                    help="concurrent OpenRouter calls (default 8; try 4 if 429s)")
     ap.add_argument("--dry-run", action="store_true",
                     help="list candidates only; no API calls")
     ap.add_argument("--rebuild-lexicon-only", action="store_true",
@@ -244,6 +301,9 @@ def main() -> None:
     ap.add_argument("--model", default=None,
                     help="OpenRouter model slug (default: cheap fallback chain)")
     args = ap.parse_args()
+
+    if args.workers < 1:
+        sys.exit("--workers must be >= 1")
 
     cards_path = Path(args.out)
     lex_path = Path(args.lexicon_out)
@@ -267,7 +327,7 @@ def main() -> None:
     _log(f"Source: {source}")
     _log(
         f"Candidates: {len(candidates)}  already done: {already}  "
-        f"todo: {len(todo)}"
+        f"todo: {len(todo)}  workers: {args.workers}"
     )
 
     if args.dry_run:
@@ -287,13 +347,10 @@ def main() -> None:
         sys.exit("OPENROUTER_API_KEY not set (load .env or sibling iraqi-law-rag/.env)")
 
     models = [args.model] if args.model else list(ANSWER_MODEL_CANDIDATES)
-    session = requests.Session()
-    session.headers.update({
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/sohaibbabajan/iraqi-legislation-rag",
-        "X-Title": "iraqi-legislation-rag law cards",
-    })
+    sleep_s = args.sleep
+    if sleep_s == 0.0 and args.workers == 1:
+        # Preserve gentle pacing for single-threaded runs unless overridden.
+        sleep_s = 0.15
 
     written = 0
     failed = 0
@@ -301,40 +358,51 @@ def main() -> None:
     total_in = 0
     total_out = 0
     t0 = time.time()
+    total = len(todo)
 
-    for i, rec in enumerate(todo, 1):
-        lid = int(rec.get("lawBookID") or 0)
-        title = (rec.get("lawTitle") or "")[:60]
-        _log(f"[{i}/{len(todo)}] {lid} {title}")
-        card, cost, pin, pout = generate_card(session, rec, models)
-        total_cost += cost
-        total_in += pin
-        total_out += pout
-        if card is None:
-            failed += 1
-            _log("  FAILED")
-            continue
-        append_law_card(card, cards_path)
-        written += 1
-        n_alias = len(card.get("colloquial_aliases") or [])
-        _log(
-            f"  ok tags={len(card['subject_tags'])} aliases={n_alias} "
-            f"cost=${cost:.6f} tok={pin}/{pout}"
-        )
-        if args.sleep > 0:
-            time.sleep(args.sleep)
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = [
+            pool.submit(
+                _process_one,
+                rec,
+                index=i,
+                total=total,
+                models=models,
+                api_key=key,
+                cards_path=cards_path,
+                sleep_s=sleep_s,
+            )
+            for i, rec in enumerate(todo, 1)
+        ]
+        for fut in as_completed(futures):
+            try:
+                ok, cost, pin, pout = fut.result()
+            except Exception as e:
+                failed += 1
+                _log(f"  worker exception: {e}")
+                continue
+            total_cost += cost
+            total_in += pin
+            total_out += pout
+            if ok:
+                written += 1
+            else:
+                failed += 1
 
     n_lex = save_alias_lexicon(path=lex_path, cards_path=cards_path)
     elapsed = time.time() - t0
     total_cards = len(load_law_cards(cards_path))
+    rate = written / elapsed if elapsed > 0 else 0.0
     _log(
         f"Done. wrote={written} failed={failed} cards_file={total_cards} "
         f"lexicon_rows={n_lex} tokens={total_in}/{total_out} "
-        f"cost=${total_cost:.6f} elapsed={elapsed:.1f}s"
+        f"cost=${total_cost:.6f} elapsed={elapsed:.1f}s "
+        f"rate={rate:.2f} cards/s workers={args.workers}"
     )
     _log(
-        "Resume full corpus: python build_law_cards.py "
-        "(skips law_book_ids already in cache/law_cards.jsonl)"
+        "Resume full corpus: python build_law_cards.py --workers 8 "
+        "(skips law_book_ids already in cache/law_cards.jsonl; "
+        "drop to --workers 4 if OpenRouter 429s dominate)"
     )
 
 

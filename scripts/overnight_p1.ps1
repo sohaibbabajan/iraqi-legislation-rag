@@ -6,10 +6,33 @@ $Log = Join-Path $Root "cache\overnight_p1.log"
 Set-Location $Root
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "cache") | Out-Null
 
+# UTF-8 so Arabic titles don't mangle in the log / console.
+try { chcp 65001 | Out-Null } catch {}
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUNBUFFERED = "1"
+
 function Write-Log([string]$msg) {
   $line = "$(Get-Date -Format o)  $msg"
-  Add-Content -Path $Log -Value $line -Encoding utf8
+  Add-Content -LiteralPath $Log -Value $line -Encoding utf8
   Write-Host $line
+}
+
+function Invoke-LoggedPython {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$PyArgs
+  )
+  # Append UTF-8 via .NET (no Tee-Object UTF-16; no Add-Content pipe that
+  # threw "Stream was not readable" on flushy Python ErrorRecords).
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  & python @PyArgs 2>&1 | ForEach-Object {
+    $line = $_.ToString()
+    [System.IO.File]::AppendAllText($Log, $line + [Environment]::NewLine, $utf8)
+    Write-Host $line
+  }
+  return $LASTEXITCODE
 }
 
 Write-Log "=== overnight_p1 START ==="
@@ -20,9 +43,6 @@ if (-not (Test-Path $venvActivate)) {
   exit 1
 }
 . $venvActivate
-
-$env:PYTHONIOENCODING = "utf-8"
-$env:PYTHONUNBUFFERED = "1"
 
 function Load-OpenRouterKey {
   $candidates = @(
@@ -59,19 +79,19 @@ if (-not (Test-Path $Source)) {
   exit 1
 }
 
-# a) law cards
-Write-Log "STEP a: build_law_cards.py"
-& python build_law_cards.py 2>&1 | ForEach-Object { Add-Content -Path $Log -Value $_ -Encoding utf8; $_ }
-Write-Log "STEP a EXIT=$LASTEXITCODE"
+# a) law cards — 8 workers; drop to 4 in build_law_cards if 429s dominate
+Write-Log "STEP a: build_law_cards.py --workers 8"
+$exitA = Invoke-LoggedPython -PyArgs @("build_law_cards.py", "--workers", "8")
+Write-Log "STEP a EXIT=$exitA"
 
 # b) article index
 Write-Log "STEP b: build_article_index.py"
-& python build_article_index.py --source $Source 2>&1 | ForEach-Object { Add-Content -Path $Log -Value $_ -Encoding utf8; $_ }
-Write-Log "STEP b EXIT=$LASTEXITCODE"
+$exitB = Invoke-LoggedPython -PyArgs @("build_article_index.py", "--source", $Source)
+Write-Log "STEP b EXIT=$exitB"
 
 # c) embed articles
 Write-Log "STEP c: embed_articles.py --api"
-& python embed_articles.py --api --source $Source 2>&1 | ForEach-Object { Add-Content -Path $Log -Value $_ -Encoding utf8; $_ }
-Write-Log "STEP c EXIT=$LASTEXITCODE"
+$exitC = Invoke-LoggedPython -PyArgs @("embed_articles.py", "--api", "--source", $Source)
+Write-Log "STEP c EXIT=$exitC"
 
 Write-Log "=== overnight_p1 DONE ==="
