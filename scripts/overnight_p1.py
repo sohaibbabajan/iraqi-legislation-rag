@@ -60,29 +60,26 @@ def _acquire_singleton() -> bool:
     """Return False if another overnight_p1 is already running."""
     global _LOCK_FH
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    my_pid = os.getpid()
     if LOCK_PATH.exists():
         try:
             old = int(LOCK_PATH.read_text(encoding="utf-8").strip().splitlines()[0])
         except (OSError, ValueError, IndexError):
             old = 0
-        if old and old != os.getpid() and _pid_alive(old):
+        if old and old != my_pid and _pid_alive(old):
             return False
-    # Exclusive create where possible; rewrite pid.
-    _LOCK_FH = open(LOCK_PATH, "a+", encoding="utf-8")
+    # Atomic-ish replace: write temp then replace. Keep handle open so we
+    # own the file for the process lifetime (best-effort on Windows).
+    tmp = LOCK_PATH.with_suffix(f".{my_pid}.tmp")
     try:
-        if sys.platform == "win32":
-            import msvcrt
-
-            _LOCK_FH.seek(0)
-            msvcrt.locking(_LOCK_FH.fileno(), msvcrt.LK_NBLCK, 1)
-        _LOCK_FH.seek(0)
-        _LOCK_FH.truncate()
-        _LOCK_FH.write(f"{os.getpid()}\n")
-        _LOCK_FH.flush()
+        tmp.write_text(f"{my_pid}\n", encoding="utf-8")
+        os.replace(tmp, LOCK_PATH)
+        _LOCK_FH = open(LOCK_PATH, "r+", encoding="utf-8")
         return True
     except OSError:
         try:
-            _LOCK_FH.close()
+            if tmp.exists():
+                tmp.unlink()
         except OSError:
             pass
         _LOCK_FH = None
@@ -91,15 +88,8 @@ def _acquire_singleton() -> bool:
 
 def _release_singleton() -> None:
     global _LOCK_FH
+    my_pid = os.getpid()
     if _LOCK_FH is not None:
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-
-                _LOCK_FH.seek(0)
-                msvcrt.locking(_LOCK_FH.fileno(), msvcrt.LK_UNLCK, 1)
-        except OSError:
-            pass
         try:
             _LOCK_FH.close()
         except OSError:
@@ -107,8 +97,10 @@ def _release_singleton() -> None:
         _LOCK_FH = None
     try:
         if LOCK_PATH.exists():
-            LOCK_PATH.unlink()
-    except OSError:
+            cur = int(LOCK_PATH.read_text(encoding="utf-8").strip().splitlines()[0])
+            if cur == my_pid:
+                LOCK_PATH.unlink()
+    except (OSError, ValueError, IndexError):
         pass
 
 
