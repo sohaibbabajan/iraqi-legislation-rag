@@ -25,6 +25,7 @@ DB_DIR = ROOT / "lancedb"               # the vector store (created on ingest)
 TABLE_NAME = "laws"
 CACHE_DIR = ROOT / "cache"              # answer cache (jsonl), created on first hit
 ANSWER_CACHE_FILE = CACHE_DIR / "answers.jsonl"
+ARTICLE_INDEX_FILE = CACHE_DIR / "article_index.jsonl"
 LAWS_MASTER = SOURCES_DIR / "laws_master.jsonl"
 SAMPLE_LAWS = SOURCES_DIR / "sample_laws.jsonl"
 

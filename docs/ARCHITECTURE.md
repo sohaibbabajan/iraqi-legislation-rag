@@ -8,10 +8,13 @@ flowchart LR
   ingest[ingest --api]
   lance[LanceDB + FTS]
   routes[law_routes]
+  art[article_index]
   ask[ask / FastAPI]
   jsonl --> ingest --> lance --> ask
   jsonl --> routes
+  jsonl --> art
   routes --> ask
+  art --> ask
 ```
 
 ## Components
@@ -24,9 +27,27 @@ flowchart LR
 | `law_registry.py` | Instrument phrases, seed aliases, registry I/O |
 | `ask.py` | Hybrid BM25+vector retrieve, confidence-gated routing, answer + verify |
 | `rag_service.py` | Same engine for CLI and HTTP |
-| `setup_store.py` | One command: ingest → FTS → routes |
+| `setup_store.py` | One command: ingest → FTS → routes → article index → verify |
+| `build_article_index.py` | Deterministic `cache/article_index.jsonl` (`defines` vs `mentions`) |
+| `scripts/verify_store.py` | Presence checks for FTS / routes / article_index |
 | `eval_recall.py` | Recall@k gold (sample suite auto-selected on small stores) |
 | `web/app.py` | `GET /health`, `POST /api/ask` only |
+
+## P0 — article index (`defines` vs `mentions`)
+
+Today's chunk `article_nums` conflates "this text *is* article 438" with
+"this text *cites* 438". The free offline fix:
+
+```powershell
+python build_article_index.py --source sources/sample_laws.jsonl
+python scripts/verify_store.py --sample --skip-registry
+pytest tests/test_article_index.py -q
+```
+
+Output: `cache/article_index.jsonl` — one row per defining article (label,
+ASCII, char span, body text, `mentions_articles`) plus `role=mentions` rows
+for in-body citations. Wired into `setup_store.py` after routes (skip with
+`--skip-article-index`). No OpenRouter spend; no law cards.
 
 ## Retrieval
 

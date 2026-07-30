@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-One-command store setup: ingest → FTS → law routes.
+One-command store setup: ingest → FTS → law routes → article index → verify.
 
     python setup_store.py                  # sample_laws.jsonl (or laws_master)
     python setup_store.py --source sources/laws_master.jsonl
     python setup_store.py --limit 50       # cheap smoke
     python setup_store.py --skip-routes    # ingest + FTS only
+    python setup_store.py --skip-article-index
+    python setup_store.py --skip-verify
 
-Requires OPENROUTER_API_KEY (env or .env). Does not run the answer LLM.
+Requires OPENROUTER_API_KEY (env or .env) for ingest/routes.
+Article index is deterministic ($0, no API).
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ def _run(argv: list[str]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Embed corpus, build FTS, then law routing index."
+        description="Embed corpus, build FTS, routes, and article index."
     )
     ap.add_argument(
         "--source",
@@ -44,7 +47,12 @@ def main() -> None:
     ap.add_argument("--skip-routes", action="store_true",
                     help="skip build_law_registry.py")
     ap.add_argument("--skip-ingest", action="store_true",
-                    help="only FTS + routes (store already exists)")
+                    help="only FTS + routes + article index (store already exists)")
+    # --- article index / verify (additive; keep flags together for easy merges) ---
+    ap.add_argument("--skip-article-index", action="store_true",
+                    help="skip deterministic cache/article_index.jsonl build")
+    ap.add_argument("--skip-verify", action="store_true",
+                    help="skip scripts/verify_store.py at the end")
     args = ap.parse_args()
 
     source = Path(args.source)
@@ -67,6 +75,18 @@ def main() -> None:
         if args.limit:
             route_cmd += ["--limit", str(args.limit)]
         _run(route_cmd)
+
+    if not args.skip_article_index:
+        art_cmd = ["build_article_index.py", "--source", str(source)]
+        if args.limit:
+            art_cmd += ["--limit", str(args.limit)]
+        _run(art_cmd)
+
+    if not args.skip_verify:
+        verify_cmd = ["scripts/verify_store.py", "--sample"]
+        if args.skip_routes:
+            verify_cmd.append("--skip-registry")
+        _run(verify_cmd)
 
     print("Store ready. Try:  python ask.py \"ما هي عقوبة السرقة؟\" --no-verify")
 

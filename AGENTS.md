@@ -12,7 +12,7 @@ See also `.cursor/rules/public-iraqi-rag-toolkit-permissions.mdc`.
 
 ## Ported stack (OpenRouter-first)
 
-- `setup_store.py` — ingest `--api` → FTS → `build_law_registry.py`
+- `setup_store.py` — ingest `--api` → FTS → `build_law_registry.py` → `build_article_index.py` → `scripts/verify_store.py`
 - Default corpus: `laws_master.jsonl` if present, else `sample_laws.jsonl`
 - Slim API: `GET /health`, `POST /api/ask` in `web/app.py`
 - Do not dump private Masadir dad-demo / tunnel polish here
