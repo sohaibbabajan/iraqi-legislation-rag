@@ -10,6 +10,10 @@ For work on this public Iraqi legislation toolkit / plan `public_iraqi_rag_toolk
 
 See also `.cursor/rules/public-iraqi-rag-toolkit-permissions.mdc`.
 
+## Model routing
+
+Default to Auto / cheaper models for coding, tests, pushes, and overnight follow-ups. Escalate to Opus 5 (`claude-opus-5-thinking-high`) only for hard calls (architecture GO/NO-GO, spend ≳$5, legal/product scope, irreversible data strategy, resolving approach conflicts). After spend review agent `18516f77`, do not stay on expensive models for implementation unless the user asks or those criteria apply — follow Opus `SPEND_REVIEW` / architecture verdicts. See `.cursor/rules/model-routing.mdc`.
+
 ## Ported stack (OpenRouter-first)
 
 - `setup_store.py` — ingest `--api` → FTS → `build_law_registry.py` → `build_article_index.py` → `embed_articles.py` → `scripts/verify_store.py`

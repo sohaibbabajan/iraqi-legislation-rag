@@ -1,0 +1,40 @@
+---
+description: User policy for when to use Auto/cheap models vs Opus 5 escalation
+alwaysApply: true
+---
+
+# Model routing — cheap default, Opus for hard calls
+
+## Default (use this)
+
+Prefer **Auto** / cheaper default models for routine work:
+
+- Coding, scaffolding, refactors, tests
+- Git commits / pushes / PR boilerplate
+- Overnight / batch jobs follow-ups that are implementation-only
+- Docs, rules, small fixes
+
+Do **not** escalate just because a task is long or multi-file.
+
+## Escalate to Opus 5 (`claude-opus-5-thinking-high`) ONLY when
+
+Use Opus for important decisions — not for implementing after the decision:
+
+1. Architecture **GO / NO-GO**
+2. Spend decisions roughly **> ~$5** (API, embedding, card pipelines, etc.)
+3. Legal / product **scope** boundaries
+4. **Irreversible** data strategy (corpus shape, index rebuilds that lock a path)
+5. **Conflict resolution** between competing approaches
+
+Opus is the “master of sorts” for those hard calls. Implementers follow its `SPEND_REVIEW` / architecture verdicts rather than re-litigating them on an expensive model.
+
+## After spend review (agent `18516f77`)
+
+Once that review completes: **do not** keep using expensive models for follow-up implementation unless the user asks or one of the escalation criteria above applies. Cheap/Auto for building what the review already decided.
+
+## Anti-patterns
+
+- ❌ Running Opus for “continue implementing the plan”
+- ❌ Overnight job babysitting on Opus
+- ❌ Re-running architecture debate on Opus after a clear verdict exists
+- ✅ Auto implements; Opus only when a new hard call appears
