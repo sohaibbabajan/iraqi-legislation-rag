@@ -272,10 +272,20 @@ class RagEngine:
                 if t and t not in amended:
                     amended.append(t)
 
-        # Exact-article lookup — no generation
+        # Exact-article lookup — prefer article defines over fat chunks
         art = parse_article_query(question)
         if art and is_exact_lookup_question(question):
-            exact = [r for r in rows if art in _row_article_set(r)]
+            exact = [
+                r for r in rows
+                if art in _row_article_set(r)
+                or str(r.get("article_label") or "") == str(art)
+            ]
+            exact.sort(
+                key=lambda r: (
+                    0 if r.get("granularity") == "article" or r.get("role") == "defines" else 1,
+                    0 if str(r.get("article_label") or "") == str(art) else 1,
+                )
+            )
             if exact:
                 parts = []
                 for r in exact[:3]:

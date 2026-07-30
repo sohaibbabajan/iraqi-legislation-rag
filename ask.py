@@ -38,7 +38,7 @@ from pathlib import Path
 import lancedb
 
 from common import (
-    ROOT, DB_DIR, TABLE_NAME, EMBED_MODEL, MAX_SEQ_LEN, USE_FP16_ON_CUDA,
+    ROOT, DB_DIR, TABLE_NAME, ARTICLES_TABLE_NAME, EMBED_MODEL, MAX_SEQ_LEN, USE_FP16_ON_CUDA,
     OPENROUTER_URL, OPENROUTER_EMBED_MODEL,
     OPENROUTER_CHAT_URL, OPENROUTER_MODELS_URL,
     ANSWER_MODEL_OR, ANSWER_MODEL_CANDIDATES,
@@ -47,6 +47,9 @@ from common import (
     is_exact_lookup_question, normalize_ar,
     title_search_needles, is_overview_question,
     load_dotenv,
+)
+from query_plan import (
+    Shape, plan_query, fuse_legs, parse_citation_key, route_vector_margin,
 )
 
 load_dotenv()
@@ -298,7 +301,9 @@ DETAILED_SYSTEM_PROMPT = """أنت مساعد قانوني متخصص في ال�
 
 
 def build_context(rows: list[dict]) -> str:
+    """Prefer article-granularity rows; emit title once per law group when possible."""
     parts = []
+    last_title = None
     for i, r in enumerate(rows, 1):
         status = r.get("status_label") or ""
         flag = r.get("law_flag") or ""
@@ -306,15 +311,19 @@ def build_context(rows: list[dict]) -> str:
         if status:
             bits.append(f"حالة: {status}")
         if flag in ("معدل", "تعديل"):
-            # Surface the highest-severity unsolved gap: article text may
-            # predate a real amendment even when status_label is ساري.
             bits.append(f"تنبيه: نص قد يكون معدّلا ({flag})")
+        if r.get("granularity") == "article" or r.get("role") == "defines":
+            lab = r.get("article_label") or ""
+            if lab:
+                bits.append(f"مادة: {lab}")
         flag_str = (" | " + " | ".join(bits)) if bits else ""
-        parts.append(
-            f"[مصدر {i}] {r.get('title','')} "
-            f"(سنة {r.get('year','')}{flag_str}) — {r.get('source_url','')}\n"
-            f"{r.get('text','')}"
-        )
+        title = r.get("title", "") or ""
+        header = f"[مصدر {i}] {title} (سنة {r.get('year','')}{flag_str}) — {r.get('source_url','')}"
+        if title and title == last_title:
+            header = f"[مصدر {i}] (نفس القانون{flag_str})"
+        else:
+            last_title = title
+        parts.append(f"{header}\n{r.get('text','')}")
     return "\n\n---\n\n".join(parts)
 
 
@@ -405,9 +414,8 @@ def _title_match_rows(table, qvec: list[float], question: str,
 
 ROUTES_TABLE_NAME = "law_routes"
 
-# Cosine distance on law_routes: only treat as high-confidence named-law
-# when the nearest title is unusually close. Topical questions often land
-# around 0.40–0.55 on related-but-wrong titles.
+# Legacy absolute distance threshold — kept for unit-test compat / A/B.
+# Live retrieve() uses QueryPlan + route_vector_margin instead.
 ROUTE_DIST_HIGH = 0.32
 
 # Function words stripped before in-law content-token overlap scoring.
@@ -420,6 +428,145 @@ _CONTENT_STOPWORDS = {
     "الاحكام", "احكام", "بشان", "بخصوص", "what", "is", "the", "a", "an",
     "of", "for", "and", "or", "to", "in", "on", "how", "when", "where",
 }
+
+
+def article_hit_to_row(art: dict) -> dict:
+    """Normalize an articles-table / article_index row into retrieve() shape."""
+    label = str(art.get("article_label") or "")
+    try:
+        lid = int(art.get("law_book_id") or 0)
+    except (TypeError, ValueError):
+        lid = 0
+    text = art.get("text") or ""
+    return {
+        "chunk_id": art.get("chunk_id") or art.get("article_id") or f"art:{lid}:{label}",
+        "law_book_id": lid,
+        "title": art.get("title") or "",
+        "category": art.get("category") or "",
+        "status_label": art.get("status_label") or "",
+        "law_flag": art.get("law_flag") or "",
+        "year": art.get("year") or "",
+        "source_url": art.get("source_url") or "",
+        "text": text,
+        "article_nums": art.get("article_nums") or (f",{label}," if label else ""),
+        "article_label": label,
+        "granularity": "article",
+        "role": art.get("role") or "defines",
+        "_distance": art.get("_distance"),
+    }
+
+
+def _registry_citation_ids(question: str) -> list[int]:
+    """Hard-scope candidates for رقم N لسنة Y against the offline registry."""
+    key = parse_citation_key(question)
+    if not key:
+        return []
+    num, year = key
+    try:
+        from law_registry import load_registry
+        rows = load_registry()
+    except Exception:
+        return []
+    hits: list[int] = []
+    for r in rows:
+        title = r.get("title") or ""
+        # Match ASCII digits inside title (registry titles mix Arabic/ASCII)
+        from query_plan import ascii_digits
+        t = ascii_digits(title)
+        if num in t and year in t and ("رقم" in title or "رقم" in normalize_ar(title)):
+            try:
+                hits.append(int(r["law_book_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return hits
+
+
+def _article_exact_from_index(
+    article_label: str,
+    *,
+    law_ids: list[int] | None = None,
+    include_all: bool = False,
+    limit: int = 6,
+) -> list[dict]:
+    """Prefer article_index *defines* over chunk article_nums (mentions-safe)."""
+    try:
+        from article_index import load_article_index, lookup_defines
+        from law_registry import load_registry
+    except Exception:
+        return []
+    defs = lookup_defines(load_article_index(), article_label=str(article_label))
+    if law_ids:
+        allow = {int(x) for x in law_ids}
+        defs = [d for d in defs if int(d.get("law_book_id") or -1) in allow]
+    # Attach titles from registry when index rows lack them
+    titles: dict[int, dict] = {}
+    try:
+        for r in load_registry():
+            try:
+                titles[int(r["law_book_id"])] = r
+            except (KeyError, TypeError, ValueError):
+                continue
+    except Exception:
+        pass
+    out: list[dict] = []
+    for d in defs:
+        if not include_all:
+            meta = titles.get(int(d.get("law_book_id") or -1), {})
+            # If we know status and it's not ساري, skip; unknown → keep
+            st = meta.get("status_label")
+            if st and st != "ساري":
+                continue
+        row = article_hit_to_row({
+            **d,
+            "title": (titles.get(int(d.get("law_book_id") or -1), {}) or {}).get("title")
+                     or d.get("title") or "",
+            "year": (titles.get(int(d.get("law_book_id") or -1), {}) or {}).get("year")
+                    or "",
+            "status_label": (titles.get(int(d.get("law_book_id") or -1), {}) or {})
+                            .get("status_label") or "",
+        })
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _search_articles_table(
+    db, qvec: list[float], question: str, *,
+    where: str | None, law_ids: list[int] | None,
+    article_label: str | None, limit: int,
+    defining_only_low: bool = False,
+) -> list[dict]:
+    """Vector search over LanceDB `articles` (defines). Falls back to []."""
+    if ARTICLES_TABLE_NAME not in _route_table_names(db):
+        return []
+    try:
+        table = db.open_table(ARTICLES_TABLE_NAME)
+    except Exception:
+        return []
+    clauses: list[str] = []
+    if where:
+        # where is written for laws table (`status_label = 'ساري'`) — same col name
+        clauses.append(f"({where})")
+    if article_label:
+        safe = str(article_label).replace("'", "''")
+        clauses.append(f"article_label = '{safe}'")
+    if law_ids:
+        ids = ",".join(str(int(x)) for x in law_ids[:12])
+        clauses.append(f"law_book_id IN ({ids})")
+    if defining_only_low:
+        # Prefer art 1–3 for overview/definitional asks
+        clauses.append("(article_label = '1' OR article_label = '2' OR article_label = '3')")
+    clause = " AND ".join(clauses) if clauses else None
+    try:
+        search = table.search(qvec).metric("cosine")
+        if clause:
+            search = search.where(clause, prefilter=True)
+        rows = search.limit(max(limit, 4)).to_list()
+    except Exception as e:
+        print(f"  (articles search unavailable — {e})")
+        return []
+    return [article_hit_to_row(r) for r in rows][:limit]
 
 
 def _route_table_names(db) -> list[str]:
@@ -460,26 +607,33 @@ def _routing_confidence(
 
 
 def _route_law_ids(db, qvec: list[float], question: str, limit: int = 12
-                   ) -> tuple[list[int], str]:
+                   ) -> tuple[list[int], str, dict]:
     """
-    Candidate law_book_ids + confidence.
+    Candidate law_book_ids + legacy conf string + routing signals for QueryPlan.
 
-    Order: registry instrument phrases → seed aliases → title-vector hits.
-    Reuses the question embedding for law_routes ($0 extra).
+    Order: registry instrument phrases → seed aliases → law-card aliases →
+    title-vector hits. Reuses the question embedding for law_routes ($0 extra).
     """
     phrase_ids: list[int] = []
     seed_ids: list[int] = []
+    card_ids: list[int] = []
+    card_alias_len = 0
+    alias_len = 0
     try:
         from law_registry import (
             load_registry,
             laws_matching_instrument_phrases,
             laws_matching_seed_aliases,
+            laws_matching_card_aliases,
+            strongest_seed_alias_len,
         )
         reg = load_registry()
         phrase_ids = laws_matching_instrument_phrases(question, reg)
         seed_ids = laws_matching_seed_aliases(question, reg)
+        card_ids, card_alias_len = laws_matching_card_aliases(question)
+        alias_len = strongest_seed_alias_len(question)
     except Exception:
-        phrase_ids, seed_ids = [], []
+        phrase_ids, seed_ids, card_ids = [], [], []
 
     vector_ranked: list[tuple[float, int]] = []
     try:
@@ -504,7 +658,7 @@ def _route_law_ids(db, qvec: list[float], question: str, limit: int = 12
 
     ids: list[int] = []
     seen: set[int] = set()
-    for lid in phrase_ids + seed_ids:
+    for lid in phrase_ids + seed_ids + card_ids:
         if lid not in seen:
             seen.add(lid)
             ids.append(lid)
@@ -514,7 +668,16 @@ def _route_law_ids(db, qvec: list[float], question: str, limit: int = 12
             ids.append(lid)
 
     conf = _routing_confidence(question, phrase_ids, seed_ids, vector_ranked)
-    return ids[:limit], conf
+    signals = {
+        "phrase_ids": phrase_ids,
+        "seed_ids": seed_ids,
+        "card_ids": card_ids,
+        "card_alias_hit": bool(card_ids) and card_alias_len >= 5,
+        "alias_len": alias_len,
+        "vector_ranked": vector_ranked,
+        "citation_law_ids": _registry_citation_ids(question),
+    }
+    return ids[:limit], conf, signals
 
 
 def content_tokens(question: str) -> list[str]:
@@ -611,14 +774,9 @@ def _chunks_for_laws(table, qvec: list[float], law_ids: list[int],
 def retrieve(table, qvec: list[float], question: str, k: int,
              include_all: bool, vector_only: bool) -> list[dict]:
     """
-    Hybrid BM25+vector by default (RRF), plus:
-      - exact article metadata matches
-      - title LIKE for named instruments
-      - law_routes / registry routing → in-law chunks
-
-    Merge order is confidence-gated:
-      high (named law): exact → routed → title → hybrid
-      low  (topical):   exact → hybrid → title → routed
+    Hybrid BM25+vector + article defines + law routing, fused via QueryPlan
+    quotas (ARCHITECTURE §5). Hybrid chunks remain the fallback when the
+    articles table / index is missing.
     """
     where = _status_filter(include_all)
     hybrid_rows: list[dict] = []
@@ -648,62 +806,150 @@ def retrieve(table, qvec: list[float], question: str, k: int,
             search = search.where(where)
         vector_rows = search.limit(k).to_list()
 
-    exact_rows: list[dict] = []
-    art = parse_article_query(question)
-    has_article_col = "article_nums" in {f.name for f in table.schema}
-    if art and has_article_col:
-        art_where = f"article_nums LIKE '%,{art},%'"
-        if where:
-            art_where = f"({where}) AND ({art_where})"
-        try:
-            exact_rows = (
-                table.search(qvec).metric("cosine")
-                .where(art_where)
-                .limit(k)
-                .to_list()
+    base = hybrid_rows or vector_rows
+
+    # Routing signals (phrases / seeds / cards / title vectors)
+    law_ids: list[int] = []
+    signals: dict = {
+        "phrase_ids": [], "seed_ids": [], "card_ids": [],
+        "card_alias_hit": False, "alias_len": 0,
+        "vector_ranked": [], "citation_law_ids": [],
+    }
+    try:
+        import lancedb as _ldb
+        db = _ldb.connect(str(DB_DIR))
+        law_ids, _conf, signals = _route_law_ids(db, qvec, question, limit=8)
+    except Exception as e:
+        print(f"  (routing skipped — {e})")
+        db = None
+
+    plan = plan_query(
+        question,
+        k=k,
+        phrase_ids=signals.get("phrase_ids") or [],
+        seed_ids=(signals.get("seed_ids") or []) + (signals.get("card_ids") or []),
+        vector_ranked=signals.get("vector_ranked") or [],
+        citation_law_ids=signals.get("citation_law_ids") or [],
+        card_alias_hit=bool(signals.get("card_alias_hit")),
+        alias_len=int(signals.get("alias_len") or 0),
+    )
+
+    # Hard scope for citation-key shape
+    scope_ids = list(plan.scope_doc_ids) or list(law_ids)
+    if plan.shape == Shape.CITATION_KEY and plan.scope_doc_ids:
+        scope_ids = list(plan.scope_doc_ids)
+
+    art_label = plan.article_label
+
+    # --- article_exact / defining_articles (prefer defines) --------------
+    article_exact: list[dict] = []
+    defining_articles: list[dict] = []
+    if art_label:
+        article_exact = _article_exact_from_index(
+            art_label,
+            law_ids=scope_ids[:8] if scope_ids and plan.shape != Shape.EXACT_ARTICLE else None,
+            include_all=include_all,
+            limit=k,
+        )
+        if db is not None:
+            vect_arts = _search_articles_table(
+                db, qvec, question,
+                where=where, law_ids=scope_ids[:8] if scope_ids else None,
+                article_label=art_label, limit=k,
             )
-        except Exception:
-            exact_rows = []
-    elif art:
-        pool = hybrid_rows or vector_rows
-        if len(pool) < k * 3:
-            search = table.search(qvec).metric("cosine")
-            if where:
-                search = search.where(where)
-            pool = search.limit(max(k * 5, 20)).to_list()
-        needle = f",{art},"
-        for r in pool:
-            nums = r.get("article_nums") or extract_article_numbers(r.get("text") or "")
-            if needle in (nums or ""):
-                exact_rows.append(r)
+            # Prefer index defines first, then vector article hits
+            seen = {r.get("chunk_id") for r in article_exact}
+            for r in vect_arts:
+                if r.get("chunk_id") not in seen:
+                    article_exact.append(r)
+                    seen.add(r.get("chunk_id"))
+        # Chunk fallback when no defines (legacy article_nums)
+        if not article_exact:
+            has_article_col = "article_nums" in {f.name for f in table.schema}
+            if has_article_col:
+                art_where = f"article_nums LIKE '%,{art_label},%'"
+                if where:
+                    art_where = f"({where}) AND ({art_where})"
+                try:
+                    article_exact = (
+                        table.search(qvec).metric("cosine")
+                        .where(art_where)
+                        .limit(k)
+                        .to_list()
+                    )
+                except Exception:
+                    article_exact = []
+
+    if plan.shape == Shape.DEFINITIONAL and db is not None:
+        defining_articles = _search_articles_table(
+            db, qvec, question,
+            where=where, law_ids=scope_ids[:6] if scope_ids else None,
+            article_label=None, limit=max(k, 4),
+            defining_only_low=True,
+        )
+        if not defining_articles and scope_ids:
+            # Index fallback: arts 1–3 for scoped laws
+            for lab in ("1", "2", "3"):
+                defining_articles.extend(_article_exact_from_index(
+                    lab, law_ids=scope_ids[:4], include_all=include_all, limit=2,
+                ))
 
     title_rows = _title_match_rows(table, qvec, question, where, limit=k)
 
-    # Law-level routing (phrases + seeds + title vectors) — $0 extra at query time
     routed_rows: list[dict] = []
-    conf = "low"
-    try:
-        import lancedb
-        from common import DB_DIR
-        db = lancedb.connect(str(DB_DIR))
-        law_ids, conf = _route_law_ids(db, qvec, question, limit=8)
-        if law_ids:
+    card_route_rows: list[dict] = []
+    if scope_ids:
+        try:
             routed_rows = _chunks_for_laws(
-                table, qvec, law_ids, where,
+                table, qvec, scope_ids, where,
                 question=question,
                 per_law=3, total_cap=max(k, 10),
             )
             if is_overview_question(question):
                 routed_rows.sort(key=_overview_rank)
-    except Exception as e:
-        print(f"  (routing skipped — {e})")
+            # Prefer article vectors inside scoped laws when available
+            if db is not None:
+                art_scoped = _search_articles_table(
+                    db, qvec, question,
+                    where=where, law_ids=scope_ids[:6],
+                    article_label=None, limit=max(k, 6),
+                )
+                if art_scoped:
+                    # Prepend article hits into law_scoped stream (deduped in fuse)
+                    routed_rows = art_scoped + routed_rows
+        except Exception as e:
+            print(f"  (law-scoped pull skipped — {e})")
 
-    base = hybrid_rows or vector_rows
-    if conf == "high":
-        # Named statute: prefer in-law chunks over topical hybrid neighbors
-        return _merge_rows(exact_rows, routed_rows, title_rows, base, limit=k)
-    # Topical ask: hybrid leads; routing only fills remaining slots
-    return _merge_rows(exact_rows, base, title_rows, routed_rows, limit=k)
+    # card_route leg: laws matched only via law_cards aliases
+    card_only = signals.get("card_ids") or []
+    if card_only and db is not None:
+        try:
+            card_route_rows = _chunks_for_laws(
+                table, qvec, card_only[:4], where,
+                question=question, per_law=2, total_cap=4,
+            )
+        except Exception:
+            card_route_rows = []
+
+    leg_hits: dict[str, list[dict]] = {
+        "hybrid": base,
+        "article_exact": article_exact,
+        "defining_articles": defining_articles,
+        "law_scoped": routed_rows,
+        "title_like": title_rows,
+        "card_route": card_route_rows,
+    }
+
+    fused = fuse_legs(
+        leg_hits,
+        plan,
+        k=k,
+        guaranteed_law_ids=scope_ids[:4] if plan.shape == Shape.MULTI_INSTRUMENT else None,
+    )
+    if fused:
+        return fused
+    # Absolute fallback: old order-based merge
+    return _merge_rows(article_exact, base, title_rows, routed_rows, limit=k)
 
 
 def main():
@@ -1048,10 +1294,21 @@ def main():
                 print(f"   • {t}")
 
         # --- Exact-article fast path: no generation, no verify ----------
-        # "المادة 75 قانون العمل" → print the matching chunk verbatim.
+        # Prefer article_index *defines* (or articles table) over fat chunks.
         art = parse_article_query(question)
         if art and is_exact_lookup_question(question):
-            exact = [r for r in rows if art in _row_article_set(r)]
+            exact = [
+                r for r in rows
+                if art in _row_article_set(r)
+                or str(r.get("article_label") or "") == str(art)
+            ]
+            # Prefer granularity=article / role=defines
+            exact.sort(
+                key=lambda r: (
+                    0 if r.get("granularity") == "article" or r.get("role") == "defines" else 1,
+                    0 if str(r.get("article_label") or "") == str(art) else 1,
+                )
+            )
             if exact:
                 print("\n" + "=" * 70)
                 print(f"نص المادة {art} (استرجاع مباشر — بدون توليد)")

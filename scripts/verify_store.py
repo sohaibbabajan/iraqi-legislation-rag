@@ -26,6 +26,7 @@ if str(_ROOT) not in sys.path:
 
 from common import (  # noqa: E402
     ARTICLE_INDEX_FILE,
+    ARTICLES_TABLE_NAME,
     DB_DIR,
     SAMPLE_LAWS,
     TABLE_NAME,
@@ -122,6 +123,35 @@ def check_registry(errors: list[str]) -> None:
         _fail("law_registry is empty", errors)
         return
     _ok(f"law_registry: {n} rows @ {REGISTRY_FILE}")
+
+
+def check_articles_table(errors: list[str], *, require: bool) -> None:
+    if not DB_DIR.exists():
+        if require:
+            _fail(f"lancedb dir missing (need articles table): {DB_DIR}", errors)
+        else:
+            print(f"SKIP articles table — no lancedb at {DB_DIR}", flush=True)
+        return
+    import lancedb
+
+    db = lancedb.connect(str(DB_DIR))
+    names = _table_names(db)
+    if ARTICLES_TABLE_NAME not in names:
+        msg = f"table {ARTICLES_TABLE_NAME!r} not in {names}"
+        if require:
+            _fail(msg + " (run: python embed_articles.py --api)", errors)
+        else:
+            print(f"SKIP {msg}", flush=True)
+        return
+    table = db.open_table(ARTICLES_TABLE_NAME)
+    try:
+        nrows = table.count_rows()
+    except Exception:
+        nrows = len(table.to_arrow())
+    if nrows < 1:
+        _fail(f"{ARTICLES_TABLE_NAME} has 0 rows", errors)
+        return
+    _ok(f"lancedb.{ARTICLES_TABLE_NAME}: {nrows} rows")
 
 
 def check_lancedb(errors: list[str], *, require_store: bool) -> None:
@@ -224,6 +254,16 @@ def main() -> None:
         action="store_true",
         help="do not require cache/law_registry.jsonl",
     )
+    ap.add_argument(
+        "--skip-articles-table",
+        action="store_true",
+        help="do not require lancedb/articles (defines embeddings)",
+    )
+    ap.add_argument(
+        "--require-articles-table",
+        action="store_true",
+        help="fail if articles table missing",
+    )
     args = ap.parse_args()
 
     errors: list[str] = []
@@ -231,6 +271,10 @@ def main() -> None:
     if not args.skip_registry:
         check_registry(errors)
     check_lancedb(errors, require_store=args.require_store)
+    if not args.skip_articles_table:
+        check_articles_table(
+            errors, require=args.require_articles_table or args.require_store,
+        )
     if args.sample:
         check_sample_index_consistency(errors)
 
