@@ -1,2 +1,17 @@
+# OpenRouter-first RAG toolkit — no GPU / torch required by default.
+# Installs in under a minute on Windows and Linux.
+
+lancedb>=0.13.0
+pyarrow>=15.0.0
+tqdm>=4.66.0
+requests>=2.31.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.0.0
 jsonschema>=4.22.0
 pytest>=8.0.0
+
+# --- Optional: local-GPU embedding (ingest / ask without --api) ---
+# sentence-transformers>=3.0.0
+# transformers>=4.39.0
+# numpy>=1.24.0

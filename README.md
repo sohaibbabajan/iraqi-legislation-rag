@@ -4,80 +4,107 @@ Open toolkit to build a **retrieval-augmented** search stack over Iraqi
 legislation: normalize a corpus → embed via OpenRouter → hybrid retrieve →
 cited Arabic answers.
 
-**Status (Phase 1 scaffold):** schema, sample fixture, and CI validation are
-in place. Full ingest / ask / scraper land in later phases. This is **search +
-drafting aids, not legal advice** — see [DATA_NOTICE.md](DATA_NOTICE.md).
+**Search + drafting aids, not legal advice.** See [DATA_NOTICE.md](DATA_NOTICE.md).
+A disclaimer is always attached to Ask output.
 
-## Cold start (outline)
+## Cold start (sample fixture, ~cents)
 
-Full polish comes later. Intended path once Phase 2–3 ship:
+You only need a Python 3.10+ venv and an [OpenRouter](https://openrouter.ai/settings/keys) key.
 
-1. Clone this repo and create a venv.
-2. `pip install -r requirements.txt`
-3. Set `OPENROUTER_API_KEY` (BYO key — no hosted free answering).
-4. Download a corpus release **or** run `scraper/` (when available).
-5. `python ingest.py --api` → LanceDB + FTS (+ law routes).
-6. `python ask.py "…"` / optional thin FastAPI.
-
-**Today you can:**
+**PowerShell**
 
 ```powershell
-cd C:\iraqi-legislation-rag
+cd iraqi-legislation-rag
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python scripts/validate_laws_schema.py
-pytest -q
+copy .env.example .env   # then edit: OPENROUTER_API_KEY=sk-or-v1-...
+# or:  $env:OPENROUTER_API_KEY = "sk-or-v1-..."
+
+python setup_store.py                  # ingest sample → FTS → law routes
+python ask.py "ما هي عقوبة السرقة؟" --no-verify
+python eval_recall.py --sample         # recall@k on the sample gold set
 ```
+
+**bash**
+
+```bash
+cd iraqi-legislation-rag
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # edit OPENROUTER_API_KEY=...
+# or:  export OPENROUTER_API_KEY="sk-or-v1-..."
+
+python setup_store.py
+python ask.py "ما هي عقوبة السرقة؟" --no-verify
+python eval_recall.py --sample
+```
+
+`setup_store.py` defaults to `sources/sample_laws.jsonl` when no full
+`laws_master.jsonl` is present. Sample records are **synthetic** CI fixtures,
+not real statutes — good enough to prove the pipeline.
+
+### Full corpus (later)
+
+When a JSONL release is available, place it at `sources/laws_master.jsonl`
+(or pass `--source`) and re-run:
+
+```powershell
+python setup_store.py --source sources/laws_master.jsonl
+python eval_recall.py --full
+```
+
+Full-corpus embedding historically costs about **$0.50–0.75** once
+(`baai/bge-m3` via OpenRouter). Do **not** commit the 259MB file or `lancedb/`.
+
+## Self-hosted API
+
+```powershell
+python -m uvicorn web.app:app --host 127.0.0.1 --port 7860
+```
+
+| Method | Path | Role |
+|--------|------|------|
+| `GET` | `/health` (also `/api/health`) | Store ok + chunk count |
+| `POST` | `/api/ask` | `{ "question": "…", "k": 6, "verify": false }` |
+
+There is **no free hosted answering** — you pay OpenRouter with your own key.
+Cloudflare / product UIs are out of scope for this toolkit.
+
+## Costs (order of magnitude)
+
+| Step | What | Rough cost |
+|------|------|------------|
+| Embed sample (~35 laws) | one-time | cents |
+| Embed full corpus (~99k chunks) | one-time | ~$0.50–0.75 |
+| Ask (embed + answer) | per query | ~$0.0006 default model |
+| Citation verify | per query (optional) | often ≥ answer call |
+
+Use `--no-verify` while iterating on retrieval; leave verify on when judging answer fidelity.
 
 ## Layout
 
 ```
-scraper/            # fetch + normalize (stub — Phase 3)
-schemas/            # JSON Schema for law (+ chunk) records
-sources/            # sample_laws.jsonl only in git; full corpus via Releases
-scripts/            # schema validation, future release helpers
-tests/              # unit + schema tests (no live store / no e2e ask)
-docs/               # architecture notes (stubs)
-.github/workflows/  # CI: pytest + schema validation
+common.py / ingest.py / ask.py   OpenRouter RAG core
+law_registry.py / build_*.py     confidence-gated law routing
+setup_store.py                   ingest → FTS → routes
+eval_recall.py                   recall@k (no answer LLM)
+rag_service.py / web/app.py      shared engine + thin FastAPI
+schemas/ + sources/sample_*.jsonl
+scraper/                         Phase 3 (releases preferred)
 ```
 
-RAG core modules (`common.py`, `ingest.py`, `ask.py`, …) arrive in **Phase 2**.
-
-## Data
-
-- Schema: [`schemas/law_record.schema.json`](schemas/law_record.schema.json)
-- Tiny committed fixture: [`sources/sample_laws.jsonl`](sources/sample_laws.jsonl)
-  (~35 synthetic records for CI — **not** real law text)
-- Full `laws_master.jsonl` (~259MB) is **not** in git; use Releases / HF later
-
-Validate any JSONL:
+## Tests / CI
 
 ```powershell
-python scripts/validate_laws_schema.py path\to\file.jsonl
+python scripts/validate_laws_schema.py
+pytest -q
 ```
+
+CI runs schema validation + unit tests only (no live OpenRouter, no full ingest).
 
 ## License / notice
 
 - Code: [MIT](LICENSE)
 - Legislation / corpus caveats: [DATA_NOTICE.md](DATA_NOTICE.md)
-
-## Publishing this repo to GitHub
-
-`gh` was not available when this scaffold was created. To publish:
-
-```powershell
-cd C:\iraqi-legislation-rag
-# install GitHub CLI: https://cli.github.com/
-gh auth login
-gh repo create sohaibbabajan/iraqi-legislation-rag --public --source=. --remote=origin --push
-```
-
-Or create an empty public repo on GitHub named `iraqi-legislation-rag`, then:
-
-```powershell
-git remote add origin https://github.com/sohaibbabajan/iraqi-legislation-rag.git
-git push -u origin master
-```
-
-Never commit `.env`, `lancedb/`, or the full corpus.
+- Architecture notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
