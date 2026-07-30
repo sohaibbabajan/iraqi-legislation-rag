@@ -23,9 +23,12 @@ ROOT = Path(__file__).parent
 SOURCES_DIR = ROOT / "sources"          # drop *.jsonl corpus files here
 DB_DIR = ROOT / "lancedb"               # the vector store (created on ingest)
 TABLE_NAME = "laws"
+ARTICLES_TABLE_NAME = "articles"        # article-level vectors (defines)
 CACHE_DIR = ROOT / "cache"              # answer cache (jsonl), created on first hit
 ANSWER_CACHE_FILE = CACHE_DIR / "answers.jsonl"
 ARTICLE_INDEX_FILE = CACHE_DIR / "article_index.jsonl"
+LAW_CARDS_FILE = CACHE_DIR / "law_cards.jsonl"  # optional P1 LLM cards (routing/UI only)
+ALIAS_LEXICON_FILE = CACHE_DIR / "alias_lexicon.jsonl"
 LAWS_MASTER = SOURCES_DIR / "laws_master.jsonl"
 SAMPLE_LAWS = SOURCES_DIR / "sample_laws.jsonl"
 

@@ -8,6 +8,10 @@ pick candidate laws, then chunks are pulled from those laws only.
 
 Seed aliases fix colloquial names (e.g. «قانون التعليم الاهلي» → العالي الأهلي
 *and* نظام التعليم الأهلي).
+
+Optional LLM law cards (`cache/law_cards.jsonl` + `cache/alias_lexicon.jsonl`)
+extend colloquial matching when present. Cards are routing/UI metadata only —
+never inject them into the answer LLM context.
 """
 
 from __future__ import annotations
@@ -18,10 +22,15 @@ from typing import Any
 
 from common import (
     ROOT, CACHE_DIR, DB_DIR, SOURCES_DIR, normalize_ar, default_corpus_path,
+    LAW_CARDS_FILE,
 )
 
 REGISTRY_FILE = CACHE_DIR / "law_registry.jsonl"
 ROUTES_TABLE = "law_routes"
+
+# Optional P1 LLM law cards (another agent builds these). Loaded if present.
+_LAW_CARDS_CACHE: list[dict] | None = None
+_LAW_CARDS_CACHE_PATH: Path | None = None
 
 # Colloquial / short names → title substrings that must be boosted.
 # normalize_ar applied at match time.
@@ -161,7 +170,19 @@ def build_registry_rows(
             "route_text": route_text,
             "source_url": rec.get("source_url") or "",
         }
-    return sorted(by_id.values(), key=lambda r: r["law_book_id"])
+    rows = sorted(by_id.values(), key=lambda r: r["law_book_id"])
+    # Merge optional card colloquial aliases into route_text when present.
+    try:
+        from law_cards import load_law_cards, merge_card_aliases_into_registry_row
+        cards = load_law_cards()
+        if cards:
+            rows = [
+                merge_card_aliases_into_registry_row(r, cards.get(int(r["law_book_id"])))
+                for r in rows
+            ]
+    except Exception:
+        pass
+    return rows
 
 
 _REGISTRY_CACHE: list[dict] | None = None
@@ -206,6 +227,9 @@ def laws_matching_seed_aliases(question: str, rows: list[dict]) -> list[int]:
     Ranked: prefer titles that match the fired rule's title_any, prefer
     قانون when the user said قانون, prefer newer years, demote تعديلات/
     بيانات/تعليمات unless that is what they asked for.
+
+    Optional law-card / alias-lexicon hits append after hand-written seeds
+    when present (routing only — never answer context).
     """
     qn = normalize_ar(question)
     fired: list[tuple[dict, int]] = []
@@ -214,45 +238,57 @@ def laws_matching_seed_aliases(question: str, rows: list[dict]) -> list[int]:
                 if len(normalize_ar(a)) >= 5 and normalize_ar(a) in qn]
         if lens:
             fired.append((rule, max(lens)))
-    if not fired:
-        return []
 
     wants_qanun = "قانون" in qn
     wants_nizam = "نظام" in qn
     wants_uni = any(x in qn for x in ("جامعة", "جامعات", "كلية", "كليات", "عالي"))
 
     scored: list[tuple[float, int]] = []
-    for r in rows:
-        tn = normalize_ar(r.get("title") or "")
-        if not tn:
-            continue
-        best = 0.0
-        for rule, alias_len in fired:
-            if not any(normalize_ar(t) in tn for t in rule["title_any"]):
+    if fired:
+        for r in rows:
+            tn = normalize_ar(r.get("title") or "")
+            if not tn:
                 continue
-            score = float(alias_len)
-            if wants_qanun and tn.startswith(normalize_ar("قانون")):
-                score += 25
-            if wants_nizam and normalize_ar("نظام") in tn:
-                score += 25
-            if wants_uni and any(x in tn for x in ("عالي", "جامعة", "جامعات", "كلية")):
-                score += 18
-            try:
-                year = int(str(r.get("year") or "0")[:4])
-            except ValueError:
-                year = 0
-            score += year / 200.0  # mild recency
-            if "تعديل" in tn and "تعديل" not in qn:
-                score -= 30
-            elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار")):
-                if not any(x in qn for x in ("تعليمات", "قرار", "بيان")):
-                    score -= 14
-            best = max(best, score)
-        if best > 0:
-            scored.append((best, int(r["law_book_id"])))
+            best = 0.0
+            for rule, alias_len in fired:
+                if not any(normalize_ar(t) in tn for t in rule["title_any"]):
+                    continue
+                score = float(alias_len)
+                if wants_qanun and tn.startswith(normalize_ar("قانون")):
+                    score += 25
+                if wants_nizam and normalize_ar("نظام") in tn:
+                    score += 25
+                if wants_uni and any(x in tn for x in ("عالي", "جامعة", "جامعات", "كلية")):
+                    score += 18
+                try:
+                    year = int(str(r.get("year") or "0")[:4])
+                except ValueError:
+                    year = 0
+                score += year / 200.0  # mild recency
+                if "تعديل" in tn and "تعديل" not in qn:
+                    score -= 30
+                elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار")):
+                    if not any(x in qn for x in ("تعليمات", "قرار", "بيان")):
+                        score -= 14
+                best = max(best, score)
+            if best > 0:
+                scored.append((best, int(r["law_book_id"])))
 
     scored.sort(key=lambda x: (-x[0], -x[1]))
-    return [lid for _, lid in scored]
+    out: list[int] = []
+    seen: set[int] = set()
+    for _, lid in scored:
+        if lid not in seen:
+            seen.add(lid)
+            out.append(lid)
+
+    # Card / lexicon aliases fill gaps after seeds (deterministic fallback).
+    card_ids, _ = laws_matching_card_aliases(question)
+    for lid in card_ids:
+        if lid not in seen:
+            seen.add(lid)
+            out.append(lid)
+    return out
 
 
 def extract_instrument_phrases(question: str) -> list[str]:
@@ -283,7 +319,7 @@ def extract_instrument_phrases(question: str) -> list[str]:
 
 
 def strongest_seed_alias_len(question: str) -> int:
-    """Longest SEED_ALIAS_RULES alias that appears in the question (normalized)."""
+    """Longest SEED / law-card alias that appears in the question (normalized)."""
     qn = normalize_ar(question)
     best = 0
     for rule in SEED_ALIAS_RULES:
@@ -291,7 +327,97 @@ def strongest_seed_alias_len(question: str) -> int:
             an = normalize_ar(a)
             if len(an) >= 5 and an in qn:
                 best = max(best, len(an))
+    # Integration hook: colloquial aliases from cache/law_cards.jsonl when present.
+    _hit, card_len = laws_matching_card_aliases(question)
+    if card_len > best:
+        best = card_len
     return best
+
+
+def load_law_cards(path: Path | None = None) -> list[dict]:
+    """
+    Load optional LLM law cards (P1). Returns [] if missing — routing still
+    works via SEED_ALIAS_RULES + registry titles.
+    Expected fields (flexible): law_book_id, aliases / colloquial_aliases /
+    colloquial_names (list[str]).
+    """
+    global _LAW_CARDS_CACHE, _LAW_CARDS_CACHE_PATH
+    p = Path(path) if path else LAW_CARDS_FILE
+    if _LAW_CARDS_CACHE is not None and _LAW_CARDS_CACHE_PATH == p:
+        return _LAW_CARDS_CACHE
+    if not p.exists():
+        _LAW_CARDS_CACHE = []
+        _LAW_CARDS_CACHE_PATH = p
+        return _LAW_CARDS_CACHE
+    out: list[dict] = []
+    with p.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    _LAW_CARDS_CACHE = out
+    _LAW_CARDS_CACHE_PATH = p
+    return out
+
+
+def _card_alias_list(card: dict) -> list[str]:
+    aliases: list[str] = []
+    for key in ("aliases", "colloquial_aliases", "colloquial_names", "aka"):
+        val = card.get(key)
+        if isinstance(val, list):
+            aliases.extend(str(a) for a in val if a)
+        elif isinstance(val, str) and val.strip():
+            aliases.append(val.strip())
+    return aliases
+
+
+def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
+    """
+    Match question against law-card colloquial aliases when
+    cache/law_cards.jsonl or cache/alias_lexicon.jsonl exists.
+
+    Returns (law_book_ids, strongest_alias_len). Routing/UI only — never
+    inject cards into the answer LLM context.
+    """
+    qn = normalize_ar(question)
+    scored: list[tuple[int, int]] = []  # (alias_len, law_book_id)
+    best_len = 0
+
+    # Prefer compact lexicon sidecar when present (built by build_law_cards.py).
+    try:
+        from law_cards import load_alias_lexicon, laws_matching_lexicon_aliases
+        from law_cards import strongest_lexicon_alias_len
+        lex = load_alias_lexicon()
+        if lex:
+            best_len = max(best_len, strongest_lexicon_alias_len(question, lex))
+            for lid in laws_matching_lexicon_aliases(question, lex):
+                scored.append((best_len, lid))
+    except Exception:
+        pass
+
+    for card in load_law_cards():
+        try:
+            lid = int(card.get("law_book_id"))
+        except (TypeError, ValueError):
+            continue
+        for a in _card_alias_list(card):
+            an = normalize_ar(a)
+            if len(an) < 5 or an not in qn:
+                continue
+            best_len = max(best_len, len(an))
+            scored.append((len(an), lid))
+
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    ids: list[int] = []
+    seen: set[int] = set()
+    for _, lid in scored:
+        if lid not in seen:
+            seen.add(lid)
+            ids.append(lid)
+    return ids, best_len
 
 
 def laws_matching_instrument_phrases(
