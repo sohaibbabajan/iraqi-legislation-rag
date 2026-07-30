@@ -1,0 +1,26 @@
+---
+description: Blanket approval for public Iraqi legislation RAG toolkit workstream — skip routine permission prompts
+alwaysApply: true
+---
+
+# Public Iraqi RAG toolkit — permissions
+
+For work on the **public Iraqi legislation toolkit** / `iraqi-legislation-rag` / plan `public_iraqi_rag_toolkit`: proceed without asking the user to re-confirm routine permissions. Treat this as blanket approval until the user revokes it.
+
+## Allowed without further confirmation
+
+- Edit any project files in this repo
+- `git commit` and push to GitHub (including creating/updating public repo `sohaibbabajan/iraqi-legislation-rag`)
+- Install dependencies, run tests
+- OpenRouter calls using existing `.env` / `OPENROUTER_API_KEY`
+- Network for GitHub, Hugging Face, and OpenRouter
+
+## Still never
+
+- Print, log, or exfiltrate secrets / API keys
+- Force-push `main` / `master`
+- Commit `.env` or files containing API keys
+
+## Scope
+
+This toolkit build only. Does not waive safety rules outside this workstream. User can revoke anytime.
