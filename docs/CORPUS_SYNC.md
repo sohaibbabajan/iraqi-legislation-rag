@@ -94,6 +94,9 @@ Unchanged from [SCRAPING.md](SCRAPING.md):
 - `sync` / `scrape` are **maintainer** tools; HTTP may work from some
   networks; Playwright is semi-attended when CF challenges.
 - Do **not** document unattended cron as supported.
+- `scripts/refresh_corpus.py` is maintainer `--once` automation around
+  the same sync path — same CF limits apply; a failed sync aborts
+  ingest so Masadir is not left on a half-applied mirror.
 
 ## GitHub stays current
 
@@ -116,6 +119,62 @@ Do **not** build textbook ingest yet. Extension point:
    `--source` passes (`ingest.py` already accepts `--source`).
 3. Chunk ids remain idempotent per record id; no scraper redesign required.
 
+## Freshness pipeline (Masadir + toolkit)
+
+One-shot orchestrator: incremental sync → mirror Masadir master → Masadir
+ingest → FTS → law registry/routes (embeds **missing** only) → law cards for
+**missing ids only** (safety cap, default 50). Idempotent; safe to re-run.
+Logs: `cache/refresh_corpus_YYYYMMDD_HHMMSS.log`.
+
+```powershell
+cd C:\iraqi-legislation-rag
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONIOENCODING = "utf-8"
+$env:IRAQI_RAG_MASTER = "C:\iraqi-law-rag\sources\laws_master.jsonl"
+
+# Prefer this: manual, attended, once
+python scripts/refresh_corpus.py --once
+
+# Preview only (no network / no API)
+python scripts/refresh_corpus.py --dry-run
+
+# Cheap smoke (cap sync discoveries; skip LLM cards)
+python scripts/refresh_corpus.py --once --sync-limit 5 --skip-cards
+
+# If HTTP hits Cloudflare
+python scripts/refresh_corpus.py --once --sync-mode playwright --sync-limit 5
+```
+
+Masadir pointer (same script):
+
+```powershell
+cd C:\iraqi-law-rag
+python scripts/refresh_corpus.py --once
+```
+
+| Flag | Effect |
+|---|---|
+| `--once` | Default one-shot run (not a daemon) |
+| `--dry-run` | Print steps only |
+| `--sync-limit N` | Cap newly fetched laws |
+| `--skip-cards` | No OpenRouter card spend |
+| `--max-new-cards N` | Cap card candidates this run (default **50**; `0` = uncapped catch-up) |
+| `--skip-sync` / `--skip-ingest` / `--skip-fts` / `--skip-registry` | Resume mid-pipeline |
+
+**Do not** install a Startup `.bat` or an enabled forever Task that burns
+OpenRouter dollars. Optional: register a **disabled** task for later manual
+enable only after reading the spend + Cloudflare warnings:
+
+```powershell
+python scripts/refresh_corpus.py --register-disabled-task
+# Task name: IraqiLegislationRag_RefreshCorpus — State must stay Disabled
+# until you consciously enable it. Default action uses --skip-cards.
+```
+
+Unattended weekly sync is **not** supported as a product path: iraqld may
+present Cloudflare challenges; Releases remain the public corpus channel
+(see [SCRAPING.md](SCRAPING.md)). Prefer `--once` when you are at the machine.
+
 ## CLI cheat sheet
 
 ```powershell
@@ -127,6 +186,7 @@ python -m scraper sync --limit 5 -o sources/laws_master.jsonl
 python -m scraper sync --from-date 2026-07-01 --limit 20
 python -m scraper merge --into sources/laws_master.jsonl sources/delta.jsonl
 python -m scraper status -o sources/laws_master.jsonl
+python scripts/refresh_corpus.py --once
 python scripts/package_corpus_release.py sources/laws_master.jsonl `
   --corpus-version 2026-07-31 --out-dir releases/
 ```

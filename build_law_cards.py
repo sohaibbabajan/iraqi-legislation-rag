@@ -332,7 +332,8 @@ def main() -> None:
     ap.add_argument("--priority", action="store_true",
                     help="major codes + recent in-force only (is_priority)")
     ap.add_argument("--limit", type=int, default=0,
-                    help="max laws to process this run")
+                    help="max NEW cards this run (applied after skipping "
+                         "ids already in the cards file)")
     ap.add_argument("--out", default=str(LAW_CARDS_FILE),
                     help="cards JSONL path")
     ap.add_argument("--lexicon-out", default=str(ALIAS_LEXICON_FILE),
@@ -366,17 +367,24 @@ def main() -> None:
     if not source.exists():
         sys.exit(f"Source not found: {source}")
 
+    # Collect the full filtered set first; apply --limit only to ids not
+    # already in the cards file so resume / refresh_corpus fill NEW laws
+    # instead of re-selecting the head of the corpus (already done).
     candidates = collect_candidates(
-        source, priority=args.priority, limit=args.limit,
+        source, priority=args.priority, limit=0,
     )
     done = existing_card_ids(cards_path)
     todo = [r for r in candidates if int(r.get("lawBookID") or 0) not in done]
     already = len(candidates) - len(todo)
+    if args.limit and len(todo) > args.limit:
+        todo = todo[: args.limit]
 
     _log(f"Source: {source}")
     _log(
         f"Candidates: {len(candidates)}  already done: {already}  "
-        f"todo: {len(todo)}  workers: {args.workers}"
+        f"todo: {len(todo)}"
+        + (f" (capped by --limit {args.limit})" if args.limit else "")
+        + f"  workers: {args.workers}"
     )
 
     if args.dry_run:
