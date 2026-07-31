@@ -69,18 +69,24 @@ python ask.py --no-cards "ما هو قانون التعليم الاهلي؟" --
 # or:  $env:IRAQI_RAG_NO_CARDS = "1"
 ```
 
-### Full corpus (later)
+### Full corpus (Release download)
 
-When a JSONL release is available, place it at `sources/laws_master.jsonl`
-(or pass `--source`) and re-run:
+Published snapshot (do **not** scrape for cold start):
+
+- **Release:** [corpus-2026-07-31](https://github.com/sohaibbabajan/iraqi-legislation-rag/releases/tag/corpus-2026-07-31)
+- **Assets:** `laws_master.jsonl` (~259 MB) + `.sha256` + `.manifest.json`
+- **Records:** 43,840 · **SHA-256:** `bfd1d1396a3c7ec3aa5a4a7d98be2459eef7cd921dde683e4e8fa1d4355d7aeb`
 
 ```powershell
+# download laws_master.jsonl from the Release, verify hash, then:
+# place at sources/laws_master.jsonl (gitignored) or pass --source
 python setup_store.py --source sources/laws_master.jsonl
 python eval_recall.py --full
 ```
 
 Full-corpus embedding historically costs about **$0.50–0.75** once
 (`baai/bge-m3` via OpenRouter). Do **not** commit the 259MB file or `lancedb/`.
+See [docs/CORPUS_SYNC.md](docs/CORPUS_SYNC.md) for maintainer incremental refresh.
 
 ## Self-hosted API
 

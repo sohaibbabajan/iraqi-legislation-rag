@@ -5,6 +5,11 @@ re-scraping ~44k instruments every time, and without duplicating rows when
 merging. Cold-start users still **download a Release** — see
 [SCRAPING.md](SCRAPING.md).
 
+**Current public snapshot:**
+[corpus-2026-07-31](https://github.com/sohaibbabajan/iraqi-legislation-rag/releases/tag/corpus-2026-07-31)
+(43,840 records; SHA-256 `bfd1d1396a3c7ec3…` — full digest in the Release
+`laws_master.sha256` asset). Do not git-commit the JSONL.
+
 ## Identity (dedupe key)
 
 | Source | Primary key | Notes |

@@ -89,6 +89,11 @@ Manifest fields include `corpus_version`, `scrape_date`, `record_count`,
 `sha256`, and rough status/year stats. Example (sample fixture dry-run):
 [`examples/sample_laws.manifest.json`](examples/sample_laws.manifest.json).
 
+**Published Release (users download this):**
+[corpus-2026-07-31](https://github.com/sohaibbabajan/iraqi-legislation-rag/releases/tag/corpus-2026-07-31)
+— `laws_master.jsonl` + `.sha256` + `.manifest.json`. Attach new assets the
+same way after each maintainer `sync` + `package_corpus_release.py` run.
+
 ## Legal / ethics
 
 See [`scraper/README.md`](../scraper/README.md) and
