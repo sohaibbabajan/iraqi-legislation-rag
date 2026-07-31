@@ -71,6 +71,18 @@ $env:PYTHONIOENCODING='utf-8'
 | Checkpoint | Unique cards | Todo remaining | Est. remaining $ |
 |---|---:|---:|---:|
 | start of full run | **2,438** | **35,584** | ~$7.8–8.0 @ $0.00022/card |
-| (update after progress / Done line) | — | — | — |
+| mid-run (~10 min) | **~3,250** | ~34.7k | ~$7.6; this-run spend ~$0.18 |
+| (update after Done line) | — | — | — |
+
+Mid-run hybrid eval@6 (Masadir `lancedb`, 12 cases): **cards on 12/12 · cards off 12/12** (delta still none).
+
+**Process:** PID **23724** (worker; parent wrapper **22748**). Log: `cache/full_law_cards_2026-07-31.log`.
+
+```powershell
+# monitor
+Get-Content C:\iraqi-legislation-rag\cache\full_law_cards_2026-07-31.log -Tail 20 -Wait
+# kill (single run — do not leave a scheduler)
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'build_law_cards' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
 
 Alias safety from `1d362e4` remains ON. `cache/` is gitignored — do not commit `law_cards.jsonl`.
