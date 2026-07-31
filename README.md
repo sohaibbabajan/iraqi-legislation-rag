@@ -44,6 +44,31 @@ python eval_recall.py --sample
 `laws_master.jsonl` is present. Sample records are **synthetic** CI fixtures,
 not real statutes — good enough to prove the pipeline.
 
+### Reuse an existing LanceDB (no re-embed)
+
+If you already paid for a full-corpus store elsewhere (e.g. a sibling Masadir
+checkout), point this toolkit at it — **$0**, no copy required:
+
+```powershell
+$env:IRAQI_RAG_DB_DIR = "C:\iraqi-law-rag\lancedb"
+# optional: copy that repo's cache/law_registry.jsonl into this cache/
+python eval_recall.py --full
+python ask.py "ما هي عقوبة السرقة؟" --no-verify
+```
+
+`IRAQI_RAG_DB_DIR` is read from the environment or `.env` at import time.
+
+### Law-card A/B
+
+Optional LLM law cards (`cache/law_cards.jsonl`) feed routing aliases only.
+Disable them to measure seed/instrument routing alone:
+
+```powershell
+python eval_recall.py --no-cards
+python ask.py --no-cards "ما هو قانون التعليم الاهلي؟" --no-verify
+# or:  $env:IRAQI_RAG_NO_CARDS = "1"
+```
+
 ### Full corpus (later)
 
 When a JSONL release is available, place it at `sources/laws_master.jsonl`

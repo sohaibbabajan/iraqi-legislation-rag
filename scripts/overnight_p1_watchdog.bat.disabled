@@ -1,0 +1,7 @@
+@echo off
+cd /d C:\iraqi-legislation-rag
+:loop
+"C:\iraqi-legislation-rag\.venv\Scripts\python.exe" "C:\iraqi-legislation-rag\scripts\overnight_p1.py"
+echo %DATE% %TIME% overnight exited %ERRORLEVEL%>> cache\overnight_p1.log
+timeout /t 30 /nobreak >nul
+goto loop

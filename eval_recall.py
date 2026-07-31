@@ -25,7 +25,7 @@ from common import (
     DB_DIR, TABLE_NAME,
     OPENROUTER_URL, OPENROUTER_EMBED_MODEL,
     normalize_ar, parse_article_query, extract_article_numbers,
-    load_dotenv,
+    load_dotenv, set_use_law_cards,
 )
 from ask import retrieve
 
@@ -231,10 +231,23 @@ def main():
         action="store_true",
         help="force full EVAL_CASES even on a small store",
     )
+    ap.add_argument(
+        "--no-cards",
+        action="store_true",
+        help="disable law_cards/alias_lexicon routing (A/B). "
+             "Same as IRAQI_RAG_NO_CARDS=1.",
+    )
     args = ap.parse_args()
 
+    if args.no_cards:
+        set_use_law_cards(False)
+
     if not DB_DIR.exists():
-        sys.exit(f"No store at {DB_DIR}. Run ingest.py / setup_store.py first.")
+        sys.exit(
+            f"No store at {DB_DIR}. Run ingest.py / setup_store.py first.\n"
+            "Or point at an existing store: "
+            '$env:IRAQI_RAG_DB_DIR = "C:\\path\\to\\lancedb"'
+        )
     or_key = os.environ.get("OPENROUTER_API_KEY")
     if not or_key:
         sys.exit(
@@ -257,7 +270,9 @@ def main():
 
     print(f"chunks={n_chunks}  k={args.k}  "
           f"mode={'vector' if args.vector_only else 'hybrid'}  "
-          f"suite={'sample' if use_sample else 'full'}")
+          f"suite={'sample' if use_sample else 'full'}  "
+          f"cards={'off' if args.no_cards else 'on'}  "
+          f"db={DB_DIR}")
     print("-" * 72)
 
     n_pass = 0

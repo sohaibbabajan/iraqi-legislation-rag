@@ -46,7 +46,7 @@ from common import (
     parse_article_query, extract_article_numbers, article_nums_list,
     is_exact_lookup_question, normalize_ar,
     title_search_needles, is_overview_question,
-    load_dotenv,
+    load_dotenv, set_use_law_cards,
 )
 from query_plan import (
     Shape, plan_query, fuse_legs, parse_citation_key, route_vector_margin,
@@ -997,7 +997,14 @@ def main():
                     help="skip the on-disk answer cache (force a fresh "
                          "generation even if this question+chunks was "
                          "answered before).")
+    ap.add_argument("--no-cards", action="store_true",
+                    help="skip law_cards/alias_lexicon in routing (A/B vs "
+                         "seed aliases + instrument phrases only). Same as "
+                         "IRAQI_RAG_NO_CARDS=1.")
     args = ap.parse_args()
+
+    if args.no_cards:
+        set_use_law_cards(False)
 
     if args.list_models:
         import requests

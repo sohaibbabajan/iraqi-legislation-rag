@@ -21,7 +21,6 @@ from dataclasses import dataclass
 # --- Paths ---------------------------------------------------------------
 ROOT = Path(__file__).parent
 SOURCES_DIR = ROOT / "sources"          # drop *.jsonl corpus files here
-DB_DIR = ROOT / "lancedb"               # the vector store (created on ingest)
 TABLE_NAME = "laws"
 ARTICLES_TABLE_NAME = "articles"        # article-level vectors (defines)
 CACHE_DIR = ROOT / "cache"              # answer cache (jsonl), created on first hit
@@ -69,6 +68,54 @@ def load_dotenv(path: Path | None = None) -> None:
 
 
 load_dotenv()
+
+
+def resolve_db_dir() -> Path:
+    """
+    Vector store directory. Override with IRAQI_RAG_DB_DIR (or short DB_DIR)
+    to reuse an already-paid store (e.g. a sibling Masadir `lancedb/`)
+    without copying or re-embedding.
+    """
+    override = (
+        (os.environ.get("IRAQI_RAG_DB_DIR") or "").strip()
+        or (os.environ.get("DB_DIR") or "").strip()
+    )
+    if override:
+        return Path(override).expanduser()
+    return ROOT / "lancedb"
+
+
+DB_DIR = resolve_db_dir()
+
+
+def use_law_cards() -> bool:
+    """
+    Whether routing may consult cache/law_cards.jsonl + alias_lexicon.jsonl.
+
+    Disable for A/B: CLI `--no-cards`, or env IRAQI_RAG_NO_CARDS=1 /
+    RAG_NO_CARDS=1 / IRAQI_RAG_USE_CARDS=0. Seed aliases + instrument
+    phrases still run.
+    """
+    for key in ("IRAQI_RAG_NO_CARDS", "RAG_NO_CARDS"):
+        no = (os.environ.get(key) or "").strip().lower()
+        if no in ("1", "true", "yes", "on"):
+            return False
+    use = (os.environ.get("IRAQI_RAG_USE_CARDS") or "1").strip().lower()
+    if use in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
+def set_use_law_cards(enabled: bool) -> None:
+    """Process-local toggle used by CLI `--no-cards` / `--cards`."""
+    if enabled:
+        os.environ.pop("IRAQI_RAG_NO_CARDS", None)
+        os.environ.pop("RAG_NO_CARDS", None)
+        os.environ["IRAQI_RAG_USE_CARDS"] = "1"
+    else:
+        os.environ["IRAQI_RAG_NO_CARDS"] = "1"
+        os.environ["RAG_NO_CARDS"] = "1"
+        os.environ["IRAQI_RAG_USE_CARDS"] = "0"
 
 # --- Embedding model -----------------------------------------------------
 # bge-m3: strong multilingual model, good on Arabic. 1024-dim vectors.

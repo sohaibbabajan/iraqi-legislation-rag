@@ -51,6 +51,10 @@ from common import (
     load_dotenv,
 )
 
+# Soft cap for article body sent to embeddings (chars). Keeps Arabic text
+# under bge-m3's ~8192-token limit while preserving most defines spans.
+ARTICLE_TEXT_CHAR_MAX = 6000
+
 load_dotenv()
 # Also try sibling Masadir .env if local key missing (never commit .env).
 if not os.environ.get("OPENROUTER_API_KEY"):
@@ -169,7 +173,10 @@ def main() -> None:
         except (KeyError, TypeError, ValueError):
             continue
         label = str(d.get("article_label") or "")
-        text = (d.get("text") or "").strip()
+        # Cap before embed: full defines spans can exceed bge-m3's ~8k-token
+        # window → OpenRouter HTTP 400. ingest.py chunks at ~2500; articles
+        # stay coarser but must not be unbounded (see docs/SPEND_REVIEW.md §4).
+        text = (d.get("text") or "").strip()[:ARTICLE_TEXT_CHAR_MAX]
         if not label or not text:
             continue
         m = meta.get(lid, {})
@@ -250,7 +257,23 @@ def main() -> None:
             data = resp.json()
             items = sorted(data["data"], key=lambda d: d["index"])
             return [it["embedding"] for it in items]
-        except requests.exceptions.HTTPError:
+        except requests.exceptions.HTTPError as exc:
+            # One oversized row used to kill the whole batch (HTTPError was
+            # re-raised before the split path). Bisect on 400 so the bad
+            # input is isolated; skip a singleton that still fails.
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 400 and len(texts) > 1 and attempt < 8:
+                mid = len(texts) // 2
+                print(f"\n  400 — bisecting batch of {len(texts)}")
+                return call_api(texts[:mid], attempt + 1) + \
+                       call_api(texts[mid:], attempt + 1)
+            if status == 400 and len(texts) == 1:
+                preview = (texts[0][:80] + "…") if texts[0] else "(empty)"
+                print(
+                    f"\n  400 — skipping bad article "
+                    f"({len(texts[0])} chars): {preview}"
+                )
+                return [None]  # type: ignore[list-item]
             raise
         except Exception:
             if attempt >= 3:
@@ -261,14 +284,17 @@ def main() -> None:
                        call_api(texts[mid:], attempt + 1)
             raise
 
-    def write_rows(batch: list[dict], vecs: list[list[float]]) -> None:
+    def write_rows(batch: list[dict], vecs: list) -> None:
         rows = []
         for r, v in zip(batch, vecs):
+            if v is None:
+                continue
             rows.append({
                 **r,
                 "vector": [float(x) for x in v],
             })
-        table.add(rows)
+        if rows:
+            table.add(rows)
 
     print(f"Embedding via OpenRouter ({OPENROUTER_EMBED_MODEL})")
     print(f"batch={OPENROUTER_BATCH}  workers={OPENROUTER_WORKERS}")
