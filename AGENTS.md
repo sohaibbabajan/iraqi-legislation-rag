@@ -12,7 +12,7 @@ See also `.cursor/rules/public-iraqi-rag-toolkit-permissions.mdc`.
 
 ## Model routing
 
-Default to Auto / cheaper models for coding, tests, pushes, and overnight follow-ups. Escalate to Opus 5 (`claude-opus-5-thinking-high`) only for hard calls (architecture GO/NO-GO, spend ≳$5, legal/product scope, irreversible data strategy, resolving approach conflicts). After spend review agent `18516f77`, do not stay on expensive models for implementation unless the user asks or those criteria apply — follow Opus `SPEND_REVIEW` / architecture verdicts. See `.cursor/rules/model-routing.mdc`.
+Default to Auto / cheaper models for coding, tests, pushes, and overnight follow-ups. Escalate to Opus 5 (`claude-opus-5-thinking-high`) **only** when the decision is objectively very important: architecture fork / GO-NO-GO, spend risk ≳$5, legal/product scope, irreversible corpus strategy, or a serious correctness conflict with lasting impact — **not** merely because someone asked for a second opinion on a small thing. After spend review agent `18516f77`, stay on cheap/Auto for implementation; escalate again only if a new hard-call criterion applies. See `.cursor/rules/model-routing.mdc`.
 
 ## Ported stack (OpenRouter-first)
 
@@ -24,3 +24,15 @@ Default to Auto / cheaper models for coding, tests, pushes, and overnight follow
 - Slim API: `GET /health`, `POST /api/ask` in `web/app.py`
 - Do not dump private Masadir dad-demo / tunnel polish here
 - Never commit `.env`, `lancedb/`, or full corpus JSONL
+
+## Measured baselines (2026-07-31 night)
+
+Against Masadir store via `IRAQI_RAG_DB_DIR` (99,377 chunks), 12-case suite:
+
+| Config | recall@6 |
+|---|---|
+| hybrid + cards | 11/12 |
+| hybrid + `--no-cards` | 11/12 |
+| `--vector-only` + cards | 11/12 |
+
+Sole fail: `article_exact_labor` (art 75 hits without `قانون العمل` title). Cards do not move the score. See `cache/baselines/` and `docs/SPEND_REVIEW.md` (budget note). **No full card corpus; no overnight_p1 tonight.**
