@@ -1,40 +1,40 @@
 # Recall baselines — 2026-07-31 night
 
-Store: `IRAQI_RAG_DB_DIR=C:\iraqi-law-rag\lancedb` · **99,377** chunks · suite=full (12 cases) · k=6  
-`SEED_ALIAS_RULES` = **46** · cards on disk ≈ **2,278** · cost = question embeddings only (no answer LLM)
+Store: `IRAQI_RAG_DB_DIR` / `DB_DIR` = `C:\iraqi-law-rag\lancedb`  
+Chunks: **99,377** · suite: **full** (12 cases) · k=6  
+Seeds: **46** `SEED_ALIAS_RULES` · cards on disk: **2,278**  
+Paid OpenRouter tonight (beyond embeds): **$0**. Question embeds only (≪$0.01).
 
-## SPEND_REVIEW $0 gate (pre exact-article fix)
+## Gate baselines (before exact-article scope fix)
 
-Measured on clean code with DB_DIR override + `--no-cards` + expanded seeds, **before** commit `99228cd` (exact-article law scope).
+| Mode | Cards | recall@6 | Fail |
+|---|---|---|---|
+| hybrid | on | **11/12** | `article_exact_labor` (art 75, empty/wrong title) |
+| hybrid | off | **11/12** | same |
+| vector-only | on | **11/12** | same |
+| vector-only | off | **11/12** | same |
 
-| Config | Mode | Cards | recall@6 | Fail |
-|---|---|---|---|---|
-| hybrid + cards | hybrid | on | **11/12 (92%)** | `article_exact_labor` |
-| hybrid + `--no-cards` | hybrid | off | **11/12 (92%)** | `article_exact_labor` |
-| `--vector-only` + cards | vector | on | **11/12 (92%)** | `article_exact_labor` |
-| `--vector-only` + `--no-cards` | vector | off | **11/12 (92%)** | `article_exact_labor` |
+**Cards A/B delta: none.** Gate verdict: do **not** buy priority cards or article-embed sample.
 
-**Cards A/B:** no delta (on == off for hybrid and vector). Existing 2,278 cards do not move this suite.
+## Post `$0` exact-article + named-law scope (commit `99228cd`)
 
-**Sole failure:** `article_exact_labor` (`المادة 75 قانون العمل`). Exact `art=75` rows returned, but titles were empty / unrelated (e.g. health convention), not `قانون العمل`. Law-scoped exact-article filter gap — not card routing and not article-vector semantics.
+| Mode | Cards | recall@6 |
+|---|---|---|
+| hybrid | off (`--no-cards`) | **12/12 (100%)** |
+| hybrid | on | **12/12 (100%)** |
 
-## After $0 exact-article scope fix (`99228cd`)
+Still **no cards delta**. Unlock was law-scoped exact-article retrieval, not LLM cards / article vectors.
 
-`EXACT_ARTICLE` / `ARTICLE_ANALYTICAL` now inherit phrase+seed law scope; defines prefer instrument-titled rows. Smoke on HEAD: `المادة 75 قانون العمل` → `قانون العمل رقم ٣٧ لسنة ٢٠١٥` (`arts=,75,`). Sibling reported hybrid `--no-cards` **12/12** after this fix. Re-run the four cells on HEAD if you need a fresh post-fix table; do not treat a WIP-tree 12/12 as the gate baseline above.
+## Env / CLI shipped
 
-## Spend decision
+- `IRAQI_RAG_DB_DIR` or short `DB_DIR` → reuse Masadir store ($0)
+- `--no-cards` / `IRAQI_RAG_NO_CARDS` / `RAG_NO_CARDS`
+- `SEED_ALIAS_RULES`: 5 → **46**
+- `embed_articles.py`: text cap + HTTP 400 bisect (ready; **not spent**)
 
-No full card corpus; no `overnight_p1`. Seeds expanded. Cards remain **NO-GO** for the long tail until a precision metric + scored alias penalty exist.
+## Morning recommendation
 
-### Reproduce
-
-```powershell
-$env:IRAQI_RAG_DB_DIR = "C:\iraqi-law-rag\lancedb"
-python eval_recall.py --full
-python eval_recall.py --full --no-cards
-python eval_recall.py --full --vector-only
-python eval_recall.py --full --vector-only --no-cards
-# or: python scripts/run_baselines.py all
-```
-
-Raw logs (local only, not committed): `cache/baselines/`.
+1. Re-measure vector-only A/B under clean `master` (expect ~12/12; low priority).
+2. Keep **NO-GO** on 38k cards / `overnight_p1`.
+3. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
+4. Before any card spend: scored تعديل/بيان penalty on card aliases + `--priority` only.

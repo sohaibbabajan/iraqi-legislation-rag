@@ -390,15 +390,15 @@ Actions 1–3 from §7 done without further card spend:
 
 Recorded recall@6 (12-case suite) — see [`docs/BASELINES.md`](BASELINES.md):
 
-| Mode | Cards | Score |
-|------|-------|------:|
-| hybrid | on | 11/12 |
-| hybrid | off | 11/12 |
-| vector-only | on | 11/12 |
-| vector-only | off | 11/12 |
+| Mode | Cards | Gate | After exact-art scope (`99228cd`) |
+|------|-------|-----:|----------------------------------:|
+| hybrid | on | 11/12 | **12/12** |
+| hybrid | off | 11/12 | **12/12** |
+| vector-only | on | 11/12 | (re-measure morning; expect ~12/12) |
+| vector-only | off | 11/12 | (re-measure morning; expect ~12/12) |
 
-**Cards did not improve recall** (on == off). Sole fail on all four cells:
-`article_exact_labor` (exact art=75 without `قانون العمل` title). A transient
-“vector `--no-cards` 12/12” was measured against an uncommitted WIP and is not
-the clean-`master` baseline. Continues to support **NO-GO** on finishing the
-38k card build until a precision metric and a scored card-alias penalty exist.
+**Cards did not improve recall** (on == off at both checkpoints). Gate fail was
+`article_exact_labor`; fixed at **$0** by scoping exact-article retrieval to the
+named law — not by buying cards or article vectors. Continues to support
+**NO-GO** on finishing the 38k card build. Paid OpenRouter tonight beyond
+question embeds: **$0**.

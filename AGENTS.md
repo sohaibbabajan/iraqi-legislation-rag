@@ -27,13 +27,11 @@ Default to Auto / cheaper models for coding, tests, pushes, and overnight follow
 
 ## Measured baselines (2026-07-31 night)
 
-Against Masadir store via `IRAQI_RAG_DB_DIR` (99,377 chunks), 12-case suite:
+Against Masadir store via `IRAQI_RAG_DB_DIR` / `DB_DIR` (99,377 chunks), 12-case suite.
+Details: [`docs/BASELINES.md`](docs/BASELINES.md).
 
-| Config | recall@6 |
-|---|---|
-| hybrid + cards | 11/12 |
-| hybrid + `--no-cards` | 11/12 |
-| `--vector-only` + cards | 11/12 |
-| `--vector-only` + `--no-cards` | 11/12 |
+**Gate (cards A/B, before exact-article scope):** all four cells **11/12** — cards on == off.
 
-Sole fail: `article_exact_labor` (art 75 hits without `قانون العمل` title). Cards do not move the score. See [`docs/BASELINES.md`](docs/BASELINES.md) and `docs/SPEND_REVIEW.md` (budget note). **No full card corpus; no overnight_p1 tonight.** Next: $0 exact-article + named-instrument scope.
+**After** named-law exact-article scope (`99228cd`): hybrid cards on **12/12**, hybrid `--no-cards` **12/12** — still no cards delta. Unlock was `$0` retrieval scoping, not LLM cards / article vectors.
+
+**No full card corpus; no overnight_p1.** Paid spend tonight beyond embeds: **$0**.
