@@ -35,9 +35,8 @@ Still **no cards delta**. Unlock was law-scoped exact-article retrieval, not LLM
 ## Morning recommendation
 
 1. Re-measure vector-only A/B under clean `master` (expect ~12/12; low priority).
-2. Keep **NO-GO** on 38k cards / `overnight_p1`.
-3. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
-4. Before any card spend: scored تعديل/بيان penalty on card aliases + `--priority` only.
+2. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
+3. Alias safety (تعديل/بيان scoring + base-code-hijack reject) must stay on for any card routing.
 
 ## Targeted priority cards (2026-07-31 night, after user GO)
 
@@ -56,4 +55,22 @@ Cards on disk after run: **2,438** unique (`law_book_id`; 2,458 JSONL lines). Le
 | hybrid | off | **12/12** |
 | hybrid | on | **12/12** |
 
-**Cards A/B delta: still none.** Paid OpenRouter this experiment: **$0.045** (no article embeds). Full ~38k remains **NO-GO** unless user explicitly says `full 38k`. Overnight task / watchdog left disabled.
+**Cards A/B delta: still none.** Paid OpenRouter this experiment: **$0.045** (no article embeds). Overnight task / watchdog left disabled.
+
+## Full in-force corpus (2026-07-31, user said `full 38k`)
+
+User override of prior NO-GO. Single long-lived resumable process (not `overnight_p1`, not Task Scheduler):
+
+```powershell
+cd C:\iraqi-legislation-rag
+$env:PYTHONIOENCODING='utf-8'
+.\.venv\Scripts\python.exe -u build_law_cards.py --workers 4
+# log: cache/full_law_cards_2026-07-31.log (+ .err.log)
+```
+
+| Checkpoint | Unique cards | Todo remaining | Est. remaining $ |
+|---|---:|---:|---:|
+| start of full run | **2,438** | **35,584** | ~$7.8–8.0 @ $0.00022/card |
+| (update after progress / Done line) | — | — | — |
+
+Alias safety from `1d362e4` remains ON. `cache/` is gitignored — do not commit `law_cards.jsonl`.

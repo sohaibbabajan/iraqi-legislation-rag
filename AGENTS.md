@@ -34,4 +34,7 @@ Details: [`docs/BASELINES.md`](docs/BASELINES.md).
 
 **After** named-law exact-article scope (`99228cd`): hybrid cards on **12/12**, hybrid `--no-cards` **12/12** — still no cards delta. Unlock was `$0` retrieval scoping, not LLM cards / article vectors.
 
-**No full card corpus; no overnight_p1.** Paid spend tonight beyond embeds: **$0**.
+**Full ~38k in-force cards:** user authorized 2026-07-31 (`full 38k`). Run
+`python build_law_cards.py --workers 4` (resumable; skips existing ids). **Do not**
+re-enable `overnight_p1` / watchdog / forever Task Scheduler — single long-lived
+process only. Alias safety (تعديل/بيان + base-code-hijack reject) stays ON.

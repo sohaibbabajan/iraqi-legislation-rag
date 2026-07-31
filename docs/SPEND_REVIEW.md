@@ -371,11 +371,20 @@ base-code name · article index **188,796 rows at $0** · article embed crashed 
 
 Hard cap tonight: **~$10 OpenRouter credits remaining** (top-up morning).
 
-- **No** full ~38k law-card corpus. **No** `overnight_p1` / watchdog / scheduled re-run.
-- Prefer **$0** baselines (DB_DIR override, `--no-cards` A/B, seed expansion) first.
-- After measurement, at most **one** targeted experiment ≤ **~$2** (priority cards
-  ~$0.50 / 200, or article-embed fix + `--limit 2000` ~$0.20). Leave **~$8+**
-  headroom for morning.
+- Originally: **No** full ~38k law-card corpus. **No** `overnight_p1` / watchdog.
+- Prefer **$0** baselines first; then at most one targeted ≤ **~$2** experiment.
+
+### User override — full 38k GO (same night, later)
+
+User explicitly said **`full 38k`** — authorizes finishing the in-force card corpus
+despite the §7 NO-GO. Constraints that still apply:
+
+- **Single long-lived** `build_law_cards.py --workers 4` (resumable; skip existing
+  `law_book_id`s). Log: `cache/full_law_cards_2026-07-31.log`.
+- **Do not** re-enable `overnight_p1`, watchdog `.bat`, or forever Task Scheduler.
+- Keep alias safety scoring (تعديل/بيان demotion + base-code-hijack reject) **ON**.
+- Est. remaining after ~2.4k cards: **~$7.8–8.0** (~35.6k × $0.00022); total corpus
+  still in the **~$8–14** band from the appendix.
 
 ---
 
@@ -399,6 +408,7 @@ Recorded recall@6 (12-case suite) — see [`docs/BASELINES.md`](BASELINES.md):
 
 **Cards did not improve recall** (on == off at both checkpoints). Gate fail was
 `article_exact_labor`; fixed at **$0** by scoping exact-article retrieval to the
-named law — not by buying cards or article vectors. Continues to support
-**NO-GO** on finishing the 38k card build. Paid OpenRouter tonight beyond
-question embeds: **$0**.
+named law — not by buying cards or article vectors. That evidence supported the
+original **NO-GO**; user later authorized **`full 38k`** anyway (see Budget note
+override + [`BASELINES.md`](BASELINES.md)). Paid OpenRouter that night beyond
+question embeds (pre-full-run): **$0** (+ $0.045 targeted priority).
