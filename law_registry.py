@@ -32,6 +32,74 @@ ROUTES_TABLE = "law_routes"
 _LAW_CARDS_CACHE: list[dict] | None = None
 _LAW_CARDS_CACHE_PATH: Path | None = None
 
+# Markers that specialize / amend / enforce a base code. Applied as score
+# penalties when present in the title but absent from the question — stops
+# عسكري / ذيول / سريان / تعديل from crowding out the named base statute.
+_TITLE_SECONDARY_MARKERS: tuple[tuple[str, float], ...] = (
+    ("عسكري", 48.0),
+    ("ذيل", 42.0),
+    ("ذيول", 42.0),
+    ("تعديل", 38.0),
+    ("سريان", 40.0),
+    ("نفاذ قانون", 40.0),
+    ("لانفاذ", 45.0),
+    ("انفاذ قانون", 40.0),
+    ("للاجانب", 40.0),
+    ("تصديق", 32.0),
+    ("اتفاقية التعاون", 30.0),
+    ("بيان -", 28.0),
+    ("اعادة العمل", 36.0),
+    ("امر سلطة", 40.0),
+    ("ائتلاف", 40.0),
+)
+
+
+def title_route_penalty(title: str, question: str) -> float:
+    """
+    Positive penalty for secondary/specialized titles when the user did not
+    ask for that specialization (عسكري, ذيل, تعديل, سريان نفاذ, …).
+    """
+    tn = normalize_ar(title or "")
+    qn = normalize_ar(question or "")
+    if not tn:
+        return 0.0
+    pen = 0.0
+    for marker, cost in _TITLE_SECONDARY_MARKERS:
+        mn = normalize_ar(marker)
+        if mn in tn and mn not in qn:
+            pen += cost
+    return pen
+
+
+def phrase_title_fit(title: str, phrase: str) -> float:
+    """
+    Bonus (or burial penalty) for how cleanly a title *is* the named phrase
+    versus merely mentioning it mid-string (e.g. عفو … بموجب … قانون العقوبات).
+    """
+    tn = normalize_ar(title or "")
+    pn = normalize_ar(phrase or "")
+    if not tn or not pn or pn not in tn:
+        return 0.0
+    short = normalize_ar(_strip_number_year(title))
+    if short == pn or (short.startswith(pn) and len(short) <= len(pn) + 12):
+        bonus = 22.0
+    elif tn.startswith(pn):
+        bonus = 16.0
+    else:
+        bonus = -22.0
+    remainder = short.replace(pn, " ", 1).strip()
+    rem_toks = []
+    for t in remainder.split():
+        if not t or t in ("رقم", "لسنة"):
+            continue
+        if t.isdigit() or all(c in "٠١٢٣٤٥٦٧٨٩()[]" for c in t):
+            continue
+        rem_toks.append(t)
+    if rem_toks:
+        bonus -= 8.0 * min(len(rem_toks), 4)
+    return bonus
+
+
 # Colloquial / short names → title substrings that must be boosted.
 # normalize_ar applied at match time. Prefer title_any needles that hit
 # ساري major codes (رقم … لسنة …) so amendments lose the seed scorer.
@@ -45,10 +113,11 @@ SEED_ALIAS_RULES: list[dict[str, Any]] = [
             "قانون التعليم الأهلي",
             "تعليم اهلي",
         ],
+        # Do NOT include bare «الجامعات والكليات الاهلية» — that substring
+        # matches قانون التعديل الاول لقانون الجامعات… and outranks نظام أهلي.
         "title_any": [
             "نظام التعليم الاهلي",
             "قانون التعليم العالي الاهلي",
-            "الجامعات والكليات الاهلية",
         ],
     },
     {
@@ -75,9 +144,12 @@ SEED_ALIAS_RULES: list[dict[str, Any]] = [
             "أصول المحاكمات الجزائية",
             "قانون اصول المحاكمات الجزائية",
         ],
+        # «… الجزائية رقم» excludes العسكري (… الجزائية العسكري رقم).
         "title_any": [
-            "اصول المحاكمات الجزائية",
-            "أصول المحاكمات الجزائية",
+            "اصول المحاكمات الجزائية رقم",
+            "أصول المحاكمات الجزائية رقم",
+            "اصول المحاكمات الجزائية رقم (٢٣)",
+            "اصول المحاكمات الجزائية رقم 23",
         ],
     },
     # --- أحوال شخصية / مدنية ---
@@ -89,10 +161,15 @@ SEED_ALIAS_RULES: list[dict[str, Any]] = [
             "قانون الأحوال الشخصية",
         ],
         "title_any": [
+            # Base corpus title is bare «قانون الاحوال الشخصية» (no رقم ١٨٨).
+            "قانون الاحوال الشخصية",
+            "قانون الأحوال الشخصية",
             "الاحوال الشخصية رقم ١٨٨",
             "الأحوال الشخصية رقم ١٨٨",
             "الاحوال الشخصية رقم 188",
             "الأحوال الشخصية رقم 188",
+            "الاحوال الشخصية رقم (١٨٨)",
+            "الاحوال الشخصية رقم (188)",
         ],
     },
     {
@@ -149,7 +226,25 @@ SEED_ALIAS_RULES: list[dict[str, Any]] = [
     # --- شركات / تجارة ---
     {
         "aliases": ["قانون الشركات", "الشركات التجارية"],
-        "title_any": ["قانون الشركات"],
+        # «قانون الشركات رقم» excludes «قانون الشركات العامة».
+        "title_any": [
+            "قانون الشركات رقم (٢١)",
+            "قانون الشركات رقم 21",
+            "قانون الشركات رقم٢١",
+        ],
+    },
+    {
+        "aliases": [
+            "الشخصية المعنوية",
+            "شخصية معنوية",
+            "تكتسب الشركة",
+            "تكتسب الشركة الشخصية",
+        ],
+        "title_any": [
+            "قانون الشركات رقم (٢١)",
+            "قانون الشركات رقم 21",
+            "قانون الشركات رقم٢١",
+        ],
     },
     {
         "aliases": ["قانون التجارة", "التجارة العراقي"],
@@ -500,9 +595,25 @@ def laws_matching_seed_aliases(question: str, rows: list[dict]) -> list[int]:
                 except ValueError:
                     year = 0
                 score += year / 200.0  # mild recency
-                if "تعديل" in tn and "تعديل" not in qn:
-                    score -= 30
-                elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار")):
+                # Prefer exact title_any needles (رقم N) over bare substring hits.
+                for needle in rule["title_any"]:
+                    nn = normalize_ar(needle)
+                    if nn in tn and ("رقم" in nn or len(nn) >= 18):
+                        score += 12
+                        break
+                # Prefer titles that *are* the named instrument (not "اعادة
+                # العمل بـ…" / mid-title mentions / specialized variants).
+                best_alias = max(
+                    (normalize_ar(a) for a in rule["aliases"]),
+                    key=len,
+                    default="",
+                )
+                if best_alias:
+                    score += phrase_title_fit(
+                        r.get("title") or "", best_alias,
+                    )
+                score -= title_route_penalty(r.get("title") or "", question)
+                if any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار")):
                     if not any(x in qn for x in ("تعليمات", "قرار", "بيان")):
                         score -= 14
                 best = max(best, score)
@@ -742,9 +853,9 @@ def laws_matching_instrument_phrases(
             except ValueError:
                 year = 0
             score += year / 200.0
-            if "تعديل" in tn and "تعديل" not in phrase:
-                score -= 30
-            elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار")):
+            score += phrase_title_fit(r.get("title") or "", phrase)
+            score -= title_route_penalty(r.get("title") or "", question)
+            if any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار")):
                 if not any(x in phrase for x in ("تعليمات", "قرار", "بيان")):
                     score -= 14
             best = max(best, score)

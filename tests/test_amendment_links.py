@@ -14,11 +14,13 @@ from amendment_links import (  # noqa: E402
     AmendmentIndex,
     _brief,
     build_amendment_links,
+    core_contained_in,
     core_title,
     match_amender_to_base,
     parse_citations,
     save_amendment_links,
 )
+from common import normalize_ar  # noqa: E402
 
 
 def _rec(**kwargs) -> dict:
@@ -137,6 +139,52 @@ def test_false_friend_disambiguated_by_instrument_kind():
     assert base is not None
     assert base.law_book_id == 101
     assert method in ("num_year", "classification", "title_contain")
+
+
+def test_core_containment_rejects_amal_inside_umla():
+    """
+    قانون العمل must NOT match داخل «قانون تعديل قانون العملة الاجنبية».
+    Regression for unbounded substring false friends (GPT review High #1).
+    """
+    labor_core = core_title("قانون العمل رقم ٣٧ لسنة ٢٠١٥")
+    assert labor_core
+    assert "عمل" in labor_core
+    foreign_currency = normalize_ar(
+        "قانون تعديل قانون العملة الاجنبية رقم ٤ لسنة ١٩٨١"
+    )
+    assert labor_core in foreign_currency  # naive substring WOULD fire
+    assert not core_contained_in(labor_core, foreign_currency)
+
+    # Honest amendment of labour code still matches at a token boundary.
+    honest = normalize_ar(
+        "قانون تعديل قانون العمل رقم ٧١ لسنة ١٩٨٧"
+    )
+    assert core_contained_in(labor_core, honest)
+
+    labor = _brief(_rec(
+        lawBookID=32566,
+        lawTitle="قانون العمل رقم ٣٧ لسنة ٢٠١٥",
+        lawFlag="معدل",
+        lawCode="37",
+        lawYear="2015",
+        classification="عمل",
+    ))
+    currency_amender = _brief(_rec(
+        lawBookID=27527,
+        lawTitle="قانون تعديل قانون العملة الاجنبية رقم ٤ لسنة ١٩٨١",
+        lawFlag="تعديل",
+        lawCode="4",
+        lawYear="1981",
+        classification="عملة",
+    ))
+    assert labor is not None and currency_amender is not None
+    base, method, conf = match_amender_to_base(
+        currency_amender,
+        muadal_by_ny={},
+        muadal_list=[labor],
+    )
+    assert base is None, (base, method, conf)
+    assert method == ""
 
 
 def test_self_cite_not_treated_as_base():

@@ -420,8 +420,34 @@ def _title_match_rows(table, qvec: list[float], question: str,
                 continue
             seen.add(cid)
             matched.append(r)
-        if len(matched) >= limit:
+        if len(matched) >= limit * 3:
             break
+    # Prefer primary instrument titles over عسكري / ذيل / سريان / تعديلات.
+    try:
+        from law_registry import title_route_penalty, phrase_title_fit
+        phrases = [
+            normalize_ar(p)
+            for p in (title_search_needles(question) or [])
+            if len(normalize_ar(p)) >= 6
+        ]
+
+        def _title_rank(r: dict) -> tuple:
+            title = r.get("title") or ""
+            pen = title_route_penalty(title, question)
+            fit = max(
+                (phrase_title_fit(title, p) for p in phrases),
+                default=0.0,
+            )
+            return (pen, -fit)
+
+        if matched:
+            matched.sort(key=_title_rank)
+            best_pen = _title_rank(matched[0])[0]
+            matched = [
+                r for r in matched if _title_rank(r)[0] <= best_pen + 20
+            ] or matched
+    except Exception:
+        pass
     if is_overview_question(question):
         matched.sort(key=_overview_rank)
     return matched[:limit]
@@ -714,6 +740,38 @@ def content_tokens(question: str) -> list[str]:
     return out
 
 
+def _like_token_variants(tok: str) -> list[str]:
+    """
+    Expand a normalize_ar token into corpus-surface variants for SQL LIKE.
+
+    normalize_ar folds ة→ه and ى→ي, but LanceDB stores original orthography,
+    so LIKE '%شخصيه%' misses «شخصية».
+    """
+    raw = (tok or "").strip()
+    if not raw:
+        return []
+    variants = [raw]
+    # ة ↔ ه (ta-marbuta)
+    if raw.endswith("ه"):
+        variants.append(raw[:-1] + "ة")
+    elif raw.endswith("ة"):
+        variants.append(raw[:-1] + "ه")
+    # ى ↔ ي
+    if "ي" in raw:
+        variants.append(raw.replace("ي", "ى"))
+    if "ى" in raw:
+        variants.append(raw.replace("ى", "ي"))
+    # Also try the un-normalized token from the question when possible — callers
+    # usually pass normalize_ar output; keep unique order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in variants:
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
 def _chunk_topic_bonus(question: str, text: str) -> float:
     """Distance discount when chunk shares content tokens with the question."""
     tokens = content_tokens(question)
@@ -732,7 +790,7 @@ def _chunks_for_laws(table, qvec: list[float], law_ids: list[int],
                      per_law: int = 3, total_cap: int = 12) -> list[dict]:
     """Vector-pull best chunks inside routed laws; keep law-rank priority."""
     rank = {int(lid): i for i, lid in enumerate(law_ids)}
-    topic_kws = content_tokens(question)[:2]
+    topic_kws = content_tokens(question)[:5]
     out: list[dict] = []
     seen: set[str] = set()
 
@@ -746,7 +804,7 @@ def _chunks_for_laws(table, qvec: list[float], law_ids: list[int],
 
     for i, lid in enumerate(law_ids):
         # Pull extra from the top-ranked law — that's the named instrument.
-        lim = 8 if i == 0 else per_law
+        lim = 10 if i == 0 else per_law
         clause = f"law_book_id = {int(lid)}"
         if where:
             clause = f"({where}) AND ({clause})"
@@ -764,19 +822,20 @@ def _chunks_for_laws(table, qvec: list[float], law_ids: list[int],
         # Keyword rescue inside the top law using question-derived tokens.
         if i == 0 and topic_kws:
             for kw in topic_kws:
-                safe = kw.replace("'", "''")
-                try:
-                    kclause = f"{clause} AND text LIKE '%{safe}%'"
-                    extra = (
-                        table.search(qvec)
-                        .metric("cosine")
-                        .where(kclause, prefilter=True)
-                        .limit(2)
-                        .to_list()
-                    )
-                    _add(extra)
-                except Exception:
-                    continue
+                for surface in _like_token_variants(kw):
+                    safe = surface.replace("'", "''")
+                    try:
+                        kclause = f"{clause} AND text LIKE '%{safe}%'"
+                        extra = (
+                            table.search(qvec)
+                            .metric("cosine")
+                            .where(kclause, prefilter=True)
+                            .limit(3)
+                            .to_list()
+                        )
+                        _add(extra)
+                    except Exception:
+                        continue
 
     out.sort(key=lambda r: (
         rank.get(int(r.get("law_book_id") or 0), 99),

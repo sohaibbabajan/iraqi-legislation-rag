@@ -265,7 +265,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=(
             "Sync iraqld → mirror Masadir master → ingest → FTS → "
-            "registry routes → cards for missing ids only."
+            "amendment_links → cards (missing ids) → registry routes."
         )
     )
     ap.add_argument(
@@ -320,6 +320,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--skip-sync", action="store_true")
     ap.add_argument("--skip-ingest", action="store_true")
     ap.add_argument("--skip-fts", action="store_true")
+    ap.add_argument("--skip-amendment-links", action="store_true")
     ap.add_argument("--skip-registry", action="store_true")
     ap.add_argument("--skip-cards", action="store_true")
     ap.add_argument(
@@ -463,10 +464,62 @@ def main(argv: list[str] | None = None) -> int:
         else:
             log.log("SKIP fts")
 
-        # --- 4) law registry + missing route embeds --------------------------
+        # --- 4) amendment links ($0; boundary-safe builder ≥1.1.0) ------------
+        if not getattr(args, "skip_amendment_links", False):
+            # Prefer Masadir master when present (full corpus); else toolkit.
+            amend_src = mirror if (args.dry_run or mirror.is_file()) else toolkit_master
+            am_argv = [
+                toolkit_py, str(TOOLKIT_ROOT / "build_amendment_links.py"),
+                "--source", str(amend_src),
+            ]
+            results["amendment_links"] = _run(
+                log, "amendment_links", am_argv,
+                cwd=TOOLKIT_ROOT, dry_run=args.dry_run,
+            )
+            if results["amendment_links"] != 0:
+                log.log(
+                    "Amendment-links build failed (non-fatal for retrieval; "
+                    "⚠ listing / amender pull may be stale)."
+                )
+            elif not args.dry_run:
+                # Ensure Masadir demo can read the sidecar without env overrides.
+                src = TOOLKIT_ROOT / "cache" / "amendment_links.jsonl"
+                dst_dir = masadir / "cache"
+                dst = dst_dir / "amendment_links.jsonl"
+                if src.is_file():
+                    dst_dir.mkdir(parents=True, exist_ok=True)
+                    import shutil
+                    shutil.copy2(src, dst)
+                    log.log(f"Copied amendment_links → {dst}")
+                else:
+                    log.log(f"(amendment sidecar missing at {src})")
+        else:
+            log.log("SKIP amendment_links")
+
+        # --- 5) law cards for missing ids only (capped) ----------------------
+        # Cards before registry so new colloquial aliases can land in
+        # route_text on the subsequent registry embed (when not --skip-cards).
+        if not args.skip_cards:
+            cards_argv = [
+                toolkit_py, str(TOOLKIT_ROOT / "build_law_cards.py"),
+                "--source", str(toolkit_master),
+                "--workers", str(args.card_workers),
+            ]
+            if args.max_new_cards and args.max_new_cards > 0:
+                cards_argv += ["--limit", str(args.max_new_cards)]
+            results["cards"] = _run(
+                log, "cards", cards_argv, cwd=TOOLKIT_ROOT, dry_run=args.dry_run,
+            )
+            if results["cards"] != 0:
+                log.log(
+                    "Cards step failed (non-fatal for retrieval; cards are "
+                    "routing/UI only). Continuing to registry."
+                )
+        else:
+            log.log("SKIP cards")
+
+        # --- 6) law registry + missing/stale route embeds --------------------
         if not args.skip_registry:
-            # Masadir build_law_registry reads SOURCES_DIR/laws_master by
-            # default (no --source flag). Mirror already wrote that path.
             reg_argv = [
                 masadir_py, "build_law_registry.py", "--rebuild-json",
             ]
@@ -479,30 +532,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             log.log("SKIP registry")
 
-        # --- 5) law cards for missing ids only (capped) ----------------------
-        if not args.skip_cards:
-            cards_argv = [
-                toolkit_py, str(TOOLKIT_ROOT / "build_law_cards.py"),
-                "--source", str(toolkit_master),
-                "--workers", str(args.card_workers),
-            ]
-            if args.max_new_cards and args.max_new_cards > 0:
-                cards_argv += ["--limit", str(args.max_new_cards)]
-            # Cap = max candidates considered; existing card ids are always
-            # skipped inside build_law_cards (so a full corpus with cards
-            # already present costs ~$0). Default cap avoids catch-up burn.
-            results["cards"] = _run(
-                log, "cards", cards_argv, cwd=TOOLKIT_ROOT, dry_run=args.dry_run,
-            )
-            if results["cards"] != 0:
-                log.log(
-                    "Cards step failed (non-fatal for retrieval; cards are "
-                    "routing/UI only). Continuing to summary."
-                )
-        else:
-            log.log("SKIP cards")
-
-        failed = {k: v for k, v in results.items() if v != 0 and k != "cards"}
+        failed = {
+            k: v for k, v in results.items()
+            if v != 0 and k not in ("cards", "amendment_links")
+        }
         log.log(f"=== refresh_corpus DONE results={results} ===")
         log.log(
             "Reminder: Cloudflare may block unattended sync; Releases remain "

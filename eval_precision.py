@@ -194,9 +194,11 @@ HARD_CASES: list[dict[str, Any]] = [
         "id": "companies_personality",
         "q": "متى تكتسب الشركة الشخصية المعنوية؟",
         "must_law_ids": [LID_COMPANIES],
-        "must_articles_any": ["8"],
+        # 21/1997: art 5 (general) + art 22 (from certificate date). Art 8 is
+        # private-company formation, not personality — do not require it.
+        "must_articles_any": ["5", "22"],
         "law_at": 3,
-        "note": "Companies 21/1997 art 8 — not unrelated شركات titles.",
+        "note": "Companies 21/1997 art 5/22 — not شركات عامة / art 8 formation.",
     },
     {
         "id": "rent_named_statute",

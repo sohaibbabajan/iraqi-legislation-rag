@@ -76,28 +76,40 @@ def _embed_batch(session: requests.Session, texts: list[str]) -> list[list[float
 
 
 def _existing_route_ids(db) -> set[int]:
+    return set(_existing_route_texts(db))
+
+
+def _existing_route_texts(db) -> dict[int, str]:
+    """law_book_id → route_text currently stored in law_routes (if any)."""
     if ROUTES_TABLE not in _table_names(db):
-        return set()
-    existing: set[int] = set()
+        return {}
+    existing: dict[int, str] = {}
     try:
         old = db.open_table(ROUTES_TABLE)
         try:
-            for batch in old.to_lance().to_batches(columns=["law_book_id"], batch_size=8192):
-                col = batch.column("law_book_id")
-                for i in range(len(col)):
-                    existing.add(int(col[i].as_py()))
+            for batch in old.to_lance().to_batches(
+                columns=["law_book_id", "route_text"], batch_size=8192,
+            ):
+                ids = batch.column("law_book_id")
+                texts = batch.column("route_text")
+                for i in range(len(ids)):
+                    existing[int(ids[i].as_py())] = str(texts[i].as_py() or "")
         except Exception:
-            # Avoid pandas dependency — Arrow table is enough.
             arrow = old.to_arrow()
-            for v in arrow.column("law_book_id").to_pylist():
-                existing.add(int(v))
+            ids = arrow.column("law_book_id").to_pylist()
+            try:
+                texts = arrow.column("route_text").to_pylist()
+            except Exception:
+                texts = [""] * len(ids)
+            for lid, txt in zip(ids, texts):
+                existing[int(lid)] = str(txt or "")
     except Exception as e:
         _log(f"(could not read existing routes: {e}; will recreate)")
         try:
             db.drop_table(ROUTES_TABLE)
         except Exception:
             pass
-        return set()
+        return {}
     return existing
 
 
@@ -110,12 +122,23 @@ def embed_routes(rows: list[dict], *, limit: int | None = None) -> None:
         rows = rows[:limit]
 
     db = lancedb.connect(str(DB_DIR))
-    _log("Scanning existing law_routes ids …")
-    existing_ids = _existing_route_ids(db)
-    todo = [r for r in rows if int(r["law_book_id"]) not in existing_ids]
+    _log("Scanning existing law_routes ids + route_text …")
+    existing_texts = _existing_route_texts(db)
+    existing_ids = set(existing_texts)
+    todo: list[dict] = []
+    stale_ids: list[int] = []
+    for r in rows:
+        lid = int(r["law_book_id"])
+        new_text = r.get("route_text") or ""
+        old_text = existing_texts.get(lid)
+        if old_text is None:
+            todo.append(r)
+        elif old_text != new_text:
+            todo.append(r)
+            stale_ids.append(lid)
     _log(
         f"Registry laws: {len(rows)}  already embedded: {len(existing_ids)}  "
-        f"to embed: {len(todo)}"
+        f"stale route_text: {len(stale_ids)}  to embed: {len(todo)}"
     )
     if not todo:
         _log("Nothing to embed.")
@@ -154,6 +177,17 @@ def embed_routes(rows: list[dict], *, limit: int | None = None) -> None:
     table = None
     if ROUTES_TABLE in _table_names(db) and existing_ids:
         table = db.open_table(ROUTES_TABLE)
+        # Drop stale rows before re-adding (ids whose route_text changed).
+        if stale_ids and table is not None:
+            # Delete in chunks to keep filter strings bounded.
+            for i in range(0, len(stale_ids), 200):
+                chunk = stale_ids[i:i + 200]
+                clause = " OR ".join(f"law_book_id = {lid}" for lid in chunk)
+                try:
+                    table.delete(clause)
+                except Exception as e:
+                    _log(f"(stale route delete partial fail: {e})")
+            _log(f"  deleted {len(stale_ids)} stale law_routes rows")
 
     t0 = time.time()
     for start in range(0, len(batches), wave):

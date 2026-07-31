@@ -27,12 +27,16 @@ from common import (
     ROOT,
     iter_records,
     normalize_ar,
+    resolve_amendment_links_file,
 )
 
-BUILDER_VERSION = "1.0.0"
-AMENDMENT_LINKS_FILE = CACHE_DIR / "amendment_links.jsonl"
+BUILDER_VERSION = "1.1.0"
+AMENDMENT_LINKS_FILE = resolve_amendment_links_file()
 
 _DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+# Arabic letters + hamza forms used for token-boundary checks after normalize_ar.
+_AR_WORD_CHAR = re.compile(r"[\u0621-\u064A\u0671\u067E\u0686\u0698\u06A4\u06AF]")
 
 _CITATION = re.compile(
     r"رقم\s*\(?\s*([٠-٩0-9]+)\s*\)?\s*(?:لسنة|/)\s*([٠-٩0-9]{2,4})",
@@ -102,6 +106,30 @@ def core_title(title: str) -> str:
     if len(t) < 8 or t in _GENERIC_CORES:
         return ""
     return t
+
+
+def core_contained_in(core: str, hay: str) -> bool:
+    """
+    Token-boundary-safe containment: ``core`` must appear in ``hay`` without
+    an Arabic letter immediately before/after (rejects العمل ⊂ العملة).
+
+    Both sides should already be normalize_ar'd (or will be here).
+    """
+    c = normalize_ar(core or "")
+    h = normalize_ar(hay or "")
+    if not c or len(c) < 8 or c not in h:
+        return False
+    start = 0
+    while True:
+        i = h.find(c, start)
+        if i < 0:
+            return False
+        before_ok = i == 0 or not _AR_WORD_CHAR.match(h[i - 1])
+        after_i = i + len(c)
+        after_ok = after_i >= len(h) or not _AR_WORD_CHAR.match(h[after_i])
+        if before_ok and after_ok:
+            return True
+        start = i + 1
 
 
 def _instrument_kind(text: str) -> str:
@@ -242,7 +270,7 @@ def _disambiguate(
     hay = normalize_ar(f"{amender.title} {amender.notes}")
     contained = [
         c for c in candidates
-        if c.core and len(c.core) >= 8 and c.core in hay
+        if c.core and len(c.core) >= 8 and core_contained_in(c.core, hay)
     ]
     if len(contained) == 1:
         return contained[0]
@@ -319,7 +347,7 @@ def match_amender_to_base(
                 return picked, "classification", "medium"
             # Ambiguous false friends — skip this pair, try others / containment
 
-    # --- title containment (longest unique core) -------------------------
+    # --- title containment (longest unique core, boundary-safe) ----------
     hay = normalize_ar(f"{hay_title} {hay_notes}")
     hits: list[_LawBrief] = []
     for m in muadal_list:
@@ -327,7 +355,7 @@ def match_amender_to_base(
             continue
         if not m.core or len(m.core) < 8:
             continue
-        if m.core in hay:
+        if core_contained_in(m.core, hay):
             hits.append(m)
     if hits:
         hits.sort(key=lambda c: len(c.core), reverse=True)
@@ -630,11 +658,25 @@ def pull_amender_article_chunks(
     chunks from linked amenders that share an article_nums label.
     Reuses the question embedding when provided (no extra embed/LLM).
     Marks extras with _amendment_pull=True.
+
+    Disabled on sidecars built before 1.1.0 (unbounded substring false
+    friends like العمل ⊂ العملة). ⚠ amended_by listing still works.
     """
     if max_extra <= 0 or not rows or qvec is None:
         return rows
     idx = index or get_amendment_index()
     if not idx.by_base:
+        return rows
+    # Gate same-article pull until boundary-safe builder version is on disk.
+    sample = next(iter(idx.by_base.values()), {})
+    ver = str(sample.get("builder_version") or "0")
+    try:
+        parts = tuple(int(x) for x in ver.split(".")[:3])
+    except ValueError:
+        parts = (0,)
+    while len(parts) < 3:
+        parts = parts + (0,)
+    if parts < (1, 1, 0):
         return rows
 
     seen = {r.get("chunk_id") for r in rows if r.get("chunk_id")}

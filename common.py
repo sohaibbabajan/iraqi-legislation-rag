@@ -28,9 +28,38 @@ ANSWER_CACHE_FILE = CACHE_DIR / "answers.jsonl"
 ARTICLE_INDEX_FILE = CACHE_DIR / "article_index.jsonl"
 LAW_CARDS_FILE = CACHE_DIR / "law_cards.jsonl"  # optional P1 LLM cards (routing/UI only)
 ALIAS_LEXICON_FILE = CACHE_DIR / "alias_lexicon.jsonl"
-AMENDMENT_LINKS_FILE = CACHE_DIR / "amendment_links.jsonl"  # معدل ← تعديل map
 LAWS_MASTER = SOURCES_DIR / "laws_master.jsonl"
 SAMPLE_LAWS = SOURCES_DIR / "sample_laws.jsonl"
+
+
+def resolve_amendment_links_file() -> Path:
+    """
+    Path to cache/amendment_links.jsonl.
+
+    Prefer (in order):
+      1. IRAQI_RAG_AMENDMENT_LINKS env (explicit file path)
+      2. IRAQI_RAG_CACHE_DIR / amendment_links.jsonl
+      3. This repo's cache/ if the sidecar exists there
+      4. Sibling iraqi-law-rag or iraqi-legislation-rag cache when present
+      5. Local cache/ (may be missing — query helpers return {})
+    """
+    explicit = (os.environ.get("IRAQI_RAG_AMENDMENT_LINKS") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    cache_override = (os.environ.get("IRAQI_RAG_CACHE_DIR") or "").strip()
+    if cache_override:
+        return Path(cache_override).expanduser() / "amendment_links.jsonl"
+    local = CACHE_DIR / "amendment_links.jsonl"
+    if local.exists():
+        return local
+    for sibling_name in ("iraqi-law-rag", "iraqi-legislation-rag"):
+        sibling = ROOT.parent / sibling_name / "cache" / "amendment_links.jsonl"
+        if sibling.exists():
+            return sibling
+    return local
+
+
+AMENDMENT_LINKS_FILE = resolve_amendment_links_file()
 
 
 def default_corpus_path() -> Path:
@@ -309,15 +338,44 @@ def normalize_ar(s: str) -> str:
 
 
 def is_overview_question(question: str) -> bool:
-    """True for 'what is law X' style asks — prefer defining articles."""
+    """
+    True for bare 'what is law X' asks — prefer defining articles.
+
+    Analytical asks that start with ما هي/ما هو but still name a topic
+    ("ما هي عقوبة السرقة في قانون العقوبات؟") are NOT overview.
+    """
     q = normalize_ar(question or "")
-    return any(
-        q.startswith(normalize_ar(p)) or f" {normalize_ar(p)}" in f" {q}"
-        for p in (
-            "ما هو", "ما هي", "ما المقصود", "عرف", "ما تعريف",
-            "what is", "define",
-        )
+    cues = (
+        "ما هو", "ما هي", "ما المقصود", "عرف", "ما تعريف",
+        "what is", "define",
     )
+    matched_cue = None
+    for p in cues:
+        pn = normalize_ar(p)
+        if q.startswith(pn) or f" {pn} " in f" {q} ":
+            matched_cue = pn
+            break
+    if not matched_cue:
+        return False
+    rest = q
+    if rest.startswith(matched_cue):
+        rest = rest[len(matched_cue):].strip()
+    try:
+        from law_registry import extract_instrument_phrases
+        for phrase in extract_instrument_phrases(question or ""):
+            rest = rest.replace(normalize_ar(phrase), " ")
+    except Exception:
+        pass
+    rest = re.sub(r"[\s؟?!،,]+", " ", rest).strip()
+    stops = {
+        "في", "من", "على", "حسب", "وفق", "بموجب", "و", "او", "ان",
+        "هذا", "هذه", "ذلك", "قانون", "نظام", "ال",
+    }
+    toks = [
+        t for t in rest.split()
+        if len(t) >= 3 and t not in stops and not t.isdigit()
+    ]
+    return len(toks) == 0
 
 
 def title_search_needles(question: str) -> list[str]:
@@ -400,11 +458,18 @@ def prefer_instrument_titled_rows(
     hard=False (default): if nothing matches, return rows unchanged.
     hard=True: if the question names an instrument and nothing matches,
     return [] so the caller can try another leg instead of unrelated art=N.
+
+    Among matches, prefer primary base-code titles over عسكري / ذيل /
+    سريان / mid-title mentions.
     """
     if not rows:
         return rows
     try:
-        from law_registry import extract_instrument_phrases
+        from law_registry import (
+            extract_instrument_phrases,
+            title_route_penalty,
+            phrase_title_fit,
+        )
         phrases = [
             normalize_ar(p)
             for p in extract_instrument_phrases(question or "")
@@ -412,15 +477,36 @@ def prefer_instrument_titled_rows(
         ]
     except Exception:
         phrases = []
+        title_route_penalty = None  # type: ignore[assignment]
+        phrase_title_fit = None  # type: ignore[assignment]
     if not phrases:
         return rows
     matched = [
         r for r in rows
         if any(p in normalize_ar(r.get("title") or "") for p in phrases)
     ]
-    if matched:
-        return matched
-    return [] if hard else rows
+    if not matched:
+        return [] if hard else rows
+
+    def _rank(r: dict) -> tuple:
+        title = r.get("title") or ""
+        pen = (
+            title_route_penalty(title, question)
+            if title_route_penalty is not None else 0.0
+        )
+        fit = 0.0
+        if phrase_title_fit is not None:
+            fit = max(
+                (phrase_title_fit(title, p) for p in phrases),
+                default=0.0,
+            )
+        return (pen, -fit)
+
+    matched.sort(key=_rank)
+    # Drop heavily specialized titles when a cleaner primary match exists.
+    best_pen = _rank(matched[0])[0]
+    kept = [r for r in matched if _rank(r)[0] <= best_pen + 20]
+    return kept or matched
 
 
 def prefer_law_id_rows(

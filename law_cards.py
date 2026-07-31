@@ -150,11 +150,16 @@ def card_alias_routing_score(
     score = float(len(an))
     tn = normalize_ar(title)
     qn = normalize_ar(question)
-    if "تعديل" in tn and "تعديل" not in qn:
-        score -= 30
-    elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار", "بيان")):
-        if not any(x in qn for x in ("تعليمات", "قرار", "بيان")):
-            score -= 14
+    # Shared secondary-title demotions (عسكري / ذيل / تعديل / سريان …).
+    try:
+        from law_registry import title_route_penalty
+        score -= title_route_penalty(title, question)
+    except Exception:
+        if "تعديل" in tn and "تعديل" not in qn:
+            score -= 30
+        elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار", "بيان")):
+            if not any(x in qn for x in ("تعليمات", "قرار", "بيان")):
+                score -= 14
     return score
 
 
