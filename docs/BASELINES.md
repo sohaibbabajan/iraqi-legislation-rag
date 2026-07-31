@@ -38,3 +38,22 @@ Still **no cards delta**. Unlock was law-scoped exact-article retrieval, not LLM
 2. Keep **NO-GO** on 38k cards / `overnight_p1`.
 3. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
 4. Before any card spend: scored تعديل/بيان penalty on card aliases + `--priority` only.
+
+## Targeted priority cards (2026-07-31 night, after user GO)
+
+Preconditions shipped first: تعديل/بيان scoring + base-code-hijack reject on card/lexicon
+aliases; `--priority` candidate order prefers major codes over chronological تعديلات /
+مراسيم.
+
+| Run | Flags | New cards | Cost | Notes |
+|---|---|---:|---:|---|
+| targeted | `--priority --limit 200 --workers 4` | **180** | **$0.045** | log: `cache/targeted_priority_cards_2026-07-31.log` |
+
+Cards on disk after run: **2,438** unique (`law_book_id`; 2,458 JSONL lines). Lexicon: **9,835** rows.
+
+| Mode | Cards | recall@6 |
+|---|---|---:|
+| hybrid | off | **12/12** |
+| hybrid | on | **12/12** |
+
+**Cards A/B delta: still none.** Paid OpenRouter this experiment: **$0.045** (no article embeds). Full ~38k remains **NO-GO** unless user explicitly says `full 38k`. Overnight task / watchdog left disabled.

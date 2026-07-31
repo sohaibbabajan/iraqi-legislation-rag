@@ -111,8 +111,41 @@ def collect_candidates(
             continue
         seen.add(lid)
         out.append(rec)
-        if limit and len(out) >= limit:
-            break
+
+    if priority:
+        # Prefer head-of-distribution base codes over chronological تعديلات
+        # and over post-2010 secondary instruments (مراسيم / تعليمات).
+        # SPEND_REVIEW: never raw lawBookID order for card spend.
+        from common import PRIORITY_TITLE_PATTERNS, normalize_ar
+        _MARKERS = ("تعديل", "بيان", "تصديق", "الغاء", "ذيل", "تفسير")
+        _SECONDARY = ("تعليمات", "مرسوم", "قرار", "النظام الداخلي", "نظام داخلي")
+
+        def _prio_key(rec: dict) -> tuple:
+            title = rec.get("lawTitle") or ""
+            tn = normalize_ar(title)
+            amend = 1 if any(normalize_ar(m) in tn for m in _MARKERS) else 0
+            secondary = 1 if any(normalize_ar(s) in tn for s in _SECONDARY) else 0
+            # Major-code title hit (substantive قانون), not merely year>=2010.
+            major = 0
+            if not amend and not secondary:
+                for pat in PRIORITY_TITLE_PATTERNS:
+                    if normalize_ar(pat) in tn:
+                        major = 1
+                        break
+            try:
+                year = int(str(rec.get("lawYear") or "0")[:4])
+            except (TypeError, ValueError):
+                year = 0
+            if year > 2030 or year < 1900:
+                year = 0
+            lid = int(rec.get("lawBookID") or 0)
+            # major first, then non-secondary, then non-amendment, then recency
+            return (0 if major else 1, secondary, amend, -year, lid)
+
+        out.sort(key=_prio_key)
+
+    if limit and len(out) > limit:
+        out = out[:limit]
     return out
 
 

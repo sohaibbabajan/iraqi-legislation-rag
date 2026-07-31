@@ -82,6 +82,34 @@ def test_lexicon_rows_and_match(tmp_path: Path):
     assert strongest_lexicon_alias_len("قانون العقوبات", rows) >= 10
 
 
+def test_dangerous_amendment_alias_rejected():
+    from law_cards import is_dangerous_card_alias, card_alias_routing_score
+
+    title = "قانون رقم (٨٣) لسنة ٢٠٠١ (تعديل قانون المرافعات المدنية)"
+    assert is_dangerous_card_alias("قانون الأحوال الشخصية", title)
+    assert card_alias_routing_score(
+        "قانون الأحوال الشخصية", title, "ما إجراءات الطلاق؟",
+    ) is None
+    # Honest amendment alias still scores (question mentions تعديل).
+    score = card_alias_routing_score(
+        "تعديل قانون المرافعات", title, "تعديل قانون المرافعات",
+    )
+    assert score is not None and score > 0
+
+
+def test_amendment_alias_demoted_for_confidence():
+    rows = [{
+        "alias": "قانون العمل",
+        "alias_norm": None,
+        "law_book_id": 72,
+        "title": "بيان - الموضوع قانون العمل رقم ٧٢ لسنة ١٩٣٦",
+        "source": "law_card",
+    }]
+    # Base-code hijack on bayan → dropped entirely.
+    assert laws_matching_lexicon_aliases("قانون العمل", rows) == []
+    assert strongest_lexicon_alias_len("قانون العمل", rows) == 0
+
+
 def test_sample_example_file_if_present():
     """Shipped example cards must validate without API."""
     path = Path(__file__).resolve().parents[1] / "docs" / "examples" / "sample_law_cards.jsonl"

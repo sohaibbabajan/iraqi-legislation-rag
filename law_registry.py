@@ -614,8 +614,9 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
     Match question against law-card colloquial aliases when
     cache/law_cards.jsonl or cache/alias_lexicon.jsonl exists.
 
-    Returns (law_book_ids, strongest_alias_len). Routing/UI only — never
-    inject cards into the answer LLM context.
+    Returns (law_book_ids, strongest_alias_len). Aliases are scored like
+    seeds (تعديل/بيان demotion); base-code hijacks on amendment titles are
+    rejected (SPEND_REVIEW §7). Routing/UI only — never answer context.
 
     No-op when use_law_cards() is False (`--no-cards` / IRAQI_RAG_NO_CARDS).
     """
@@ -623,7 +624,7 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
         return [], 0
 
     qn = normalize_ar(question)
-    scored: list[tuple[int, int]] = []  # (alias_len, law_book_id)
+    scored: list[tuple[float, int]] = []  # (score, law_book_id)
     best_len = 0
 
     # Prefer compact lexicon sidecar when present (built by build_law_cards.py).
@@ -634,21 +635,35 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
         if lex:
             best_len = max(best_len, strongest_lexicon_alias_len(question, lex))
             for lid in laws_matching_lexicon_aliases(question, lex):
-                scored.append((best_len, lid))
+                scored.append((float(best_len), lid))
     except Exception:
         pass
+
+    try:
+        from law_cards import card_alias_routing_score
+    except Exception:
+        card_alias_routing_score = None  # type: ignore[assignment]
 
     for card in load_law_cards():
         try:
             lid = int(card.get("law_book_id"))
         except (TypeError, ValueError):
             continue
+        title = card.get("title") or ""
         for a in _card_alias_list(card):
             an = normalize_ar(a)
             if len(an) < 5 or an not in qn:
                 continue
-            best_len = max(best_len, len(an))
-            scored.append((len(an), lid))
+            if card_alias_routing_score is not None:
+                score = card_alias_routing_score(a, title, question)
+                if score is None or score <= 0:
+                    continue
+                scored.append((score, lid))
+                if score >= len(an) - 1:
+                    best_len = max(best_len, len(an))
+            else:
+                best_len = max(best_len, len(an))
+                scored.append((float(len(an)), lid))
 
     scored.sort(key=lambda x: (-x[0], -x[1]))
     ids: list[int] = []

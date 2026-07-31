@@ -75,12 +75,87 @@ aliases يجب أن تكون أسماء دارجة قصيرة يستخدمها �
 _MIN_ALIAS_LEN = 4
 _MAX_TEXT_CHARS = 4500
 
+# Amendment / secondary-instrument markers (mirrors seed penalties in
+# law_registry). Card aliases that strip these and claim a bare base-code
+# name are rejected — AGENTS.md bug #1 at the alias layer.
+_AMENDMENT_MARKERS = (
+    "تعديل", "بيان", "قرار", "تصديق", "الغاء", "ذيل", "تفسير",
+)
+_BASE_CODE_NAMES = (
+    "قانون العقوبات",
+    "قانون الاحوال الشخصية",
+    "قانون العمل",
+    "القانون المدني",
+    "قانون المرافعات المدنية",
+    "قانون اصول المحاكمات الجزائية",
+    "قانون الشركات",
+    "قانون المواريث",
+    "قانون التجارة",
+    "قانون الخدمة المدنية",
+)
+_BASE_CODE_NORMS = tuple(normalize_ar(b) for b in _BASE_CODE_NAMES)
+
 _STRIP_ALIAS_SUFFIX = re.compile(
     r"\s+(العراقي|لجمهورية العراق|جمهورية العراق)\s*$"
 )
 _STRIP_NUM_YEAR = re.compile(
     r"\s*رقم\s*\(?\s*[٠-٩0-9]+\s*\)?\s*(لسنة|\/)\s*[٠-٩0-9]+.*$"
 )
+
+
+def title_amendment_markers(title: str) -> list[str]:
+    """Which amendment/secondary markers appear in the law title."""
+    tn = normalize_ar(title)
+    return [m for m in _AMENDMENT_MARKERS if normalize_ar(m) in tn]
+
+
+def alias_claims_base_code(alias: str) -> bool:
+    """True if alias is (or contains) a head-of-distribution base-code name."""
+    an = normalize_ar(alias)
+    if len(an) < _MIN_ALIAS_LEN:
+        return False
+    return any(nb in an or an in nb for nb in _BASE_CODE_NORMS)
+
+
+def is_dangerous_card_alias(alias: str, title: str) -> bool:
+    """
+    Reject aliases that claim a bare base-code name while the title carries
+    an amendment/bayan/qarar marker and the alias drops that marker.
+    """
+    markers = title_amendment_markers(title)
+    if not markers:
+        return False
+    an = normalize_ar(alias)
+    if not an:
+        return False
+    if any(normalize_ar(m) in an for m in markers):
+        return False  # marker preserved — honest
+    return alias_claims_base_code(alias)
+
+
+def card_alias_routing_score(
+    alias: str, title: str, question: str,
+) -> float | None:
+    """
+    Seed-like score for a card/lexicon alias hit.
+
+    Returns None when the alias must be ignored (dangerous false-friend).
+    Otherwise alias length with تعديل/بيان/قرار demotions matching seeds.
+    """
+    if is_dangerous_card_alias(alias, title):
+        return None
+    an = normalize_ar(alias)
+    if len(an) < _MIN_ALIAS_LEN:
+        return None
+    score = float(len(an))
+    tn = normalize_ar(title)
+    qn = normalize_ar(question)
+    if "تعديل" in tn and "تعديل" not in qn:
+        score -= 30
+    elif any(x in tn for x in ("بيان تصحيح", "تعليمات", "قرار", "بيان")):
+        if not any(x in qn for x in ("تعليمات", "قرار", "بيان")):
+            score -= 14
+    return score
 
 
 def _alias_variants(alias: str) -> list[str]:
@@ -109,11 +184,15 @@ def card_aliases_for_lexicon(card: dict) -> list[str]:
     """Normalized unique aliases worth indexing for routing."""
     seen: set[str] = set()
     out: list[str] = []
+    title = (card.get("title") or "").strip()
 
     def _add(raw: str) -> None:
         for variant in _alias_variants(raw):
             n = normalize_ar(variant)
             if len(n) < _MIN_ALIAS_LEN or n in seen:
+                continue
+            # Drop base-code hijacks on amendment/bayan titles (SPEND_REVIEW §7).
+            if is_dangerous_card_alias(variant, title):
                 continue
             seen.add(n)
             out.append(variant.strip())
@@ -122,7 +201,6 @@ def card_aliases_for_lexicon(card: dict) -> list[str]:
         _add(str(a or ""))
     # Title-derived shorts so «قانون العقوبات» still routes when the model
     # only emitted «قانون العقوبات العراقي».
-    title = (card.get("title") or "").strip()
     if title:
         try:
             from law_registry import rule_aliases_for_title
@@ -374,7 +452,8 @@ def laws_matching_lexicon_aliases(
 ) -> list[int]:
     """
     law_book_ids whose colloquial aliases appear in the question.
-    Longer alias matches rank higher. Deterministic; empty if no lexicon.
+    Scored like seed aliases (تعديل/بيان demotion); dangerous base-code
+    hijacks on amendment titles are dropped. Deterministic; empty if none.
     """
     rows = lexicon if lexicon is not None else load_alias_lexicon()
     if not rows:
@@ -382,13 +461,18 @@ def laws_matching_lexicon_aliases(
     qn = normalize_ar(question)
     scored: dict[int, float] = {}
     for r in rows:
-        an = r.get("alias_norm") or normalize_ar(r.get("alias") or "")
+        alias = r.get("alias") or ""
+        an = r.get("alias_norm") or normalize_ar(alias)
         if len(an) < _MIN_ALIAS_LEN or an not in qn:
             continue
         lid = int(r.get("law_book_id") or 0)
         if not lid:
             continue
-        scored[lid] = max(scored.get(lid, 0.0), float(len(an)))
+        title = r.get("title") or ""
+        score = card_alias_routing_score(alias or an, title, question)
+        if score is None or score <= 0:
+            continue
+        scored[lid] = max(scored.get(lid, 0.0), score)
     return [lid for lid, _ in sorted(scored.items(), key=lambda x: (-x[1], -x[0]))]
 
 
@@ -396,14 +480,28 @@ def strongest_lexicon_alias_len(
     question: str,
     lexicon: list[dict] | None = None,
 ) -> int:
+    """
+    Longest *unpenalized* lexicon alias in the question.
+
+    Heavily demoted amendment/bayan hits do not inflate NAMED_INSTRUMENT
+    confidence (SPEND_REVIEW §5).
+    """
     rows = lexicon if lexicon is not None else load_alias_lexicon()
     if not rows:
         return 0
     qn = normalize_ar(question)
     best = 0
     for r in rows:
-        an = r.get("alias_norm") or normalize_ar(r.get("alias") or "")
-        if len(an) >= _MIN_ALIAS_LEN and an in qn:
+        alias = r.get("alias") or ""
+        an = r.get("alias_norm") or normalize_ar(alias)
+        if len(an) < _MIN_ALIAS_LEN or an not in qn:
+            continue
+        title = r.get("title") or ""
+        score = card_alias_routing_score(alias or an, title, question)
+        if score is None:
+            continue
+        # Only count near-full-length scores for confidence gating.
+        if score >= len(an) - 1:
             best = max(best, len(an))
     return best
 
