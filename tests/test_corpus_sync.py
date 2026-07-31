@@ -10,7 +10,13 @@ from scraper.identity import (
     ensure_extension_fields,
     record_identity,
 )
-from scraper.merge import load_jsonl_by_identity, merge_jsonl, merge_records
+from scraper.merge import (
+    load_jsonl_by_identity,
+    merge_jsonl,
+    merge_records,
+    mirror_master_file,
+    resolve_mirror_path,
+)
 
 
 def _rec(**kwargs):
@@ -148,3 +154,18 @@ def test_ensure_extension_fields():
     out = ensure_extension_fields({"lawBookID": 99, "lawTitle": "x", "full_text": "", "status_label": "ساري"})
     assert out["source_type"] == "iraqld"
     assert out["corpus_id"] == "iraqld:99"
+
+
+def test_mirror_master_copies_and_skips_same_path(tmp_path: Path, monkeypatch):
+    src = tmp_path / "master.jsonl"
+    dst = tmp_path / "masadir" / "laws_master.jsonl"
+    src.write_text('{"lawBookID":1}\n', encoding="utf-8")
+    assert mirror_master_file(src, None) is None
+    assert mirror_master_file(src, src) is None
+    out = mirror_master_file(src, dst)
+    assert out == dst.resolve()
+    assert dst.read_text(encoding="utf-8") == src.read_text(encoding="utf-8")
+
+    monkeypatch.setenv("IRAQI_RAG_MASTER", str(dst))
+    assert resolve_mirror_path(None) == dst
+    assert resolve_mirror_path(tmp_path / "explicit.jsonl") == tmp_path / "explicit.jsonl"

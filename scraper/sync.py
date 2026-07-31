@@ -8,7 +8,14 @@ from typing import Any
 
 from scraper.config import ScraperConfig
 from scraper.identity import ensure_extension_fields, record_identity
-from scraper.merge import MergeStats, load_jsonl_by_identity, merge_records, write_jsonl_atomic, append_jsonl_records
+from scraper.merge import (
+    MergeStats,
+    append_jsonl_records,
+    load_jsonl_by_identity,
+    merge_records,
+    mirror_master_file,
+    write_jsonl_atomic,
+)
 from scraper.normalize import normalize_record
 from scraper.parse import CloudflareChallengeError, full_text_from_detail_html
 from scraper.scrape import (
@@ -254,6 +261,12 @@ def run_sync(config: ScraperConfig) -> int:
         if config.delta_path is not None and changed:
             append_jsonl_records(config.delta_path, changed)
             stats.delta_written = len(changed)
+
+    # Always attempt mirror after a successful sync pass (even if no new
+    # rows) so Masadir / a second checkout stays byte-aligned with -o.
+    mirrored = mirror_master_file(config.output, config.mirror_output)
+    if mirrored is not None:
+        print(f"[sync] mirrored master → {mirrored}", file=sys.stderr)
 
     state.last_sync_at = time.time()
     state.save(config.state_path)

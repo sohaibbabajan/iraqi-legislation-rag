@@ -45,6 +45,8 @@ class ScraperConfig:
     to_date: str | None = None
     delta_path: Path | None = None
     sync_stop_after_known: int | None = None
+    # Optional second master (e.g. Masadir) — see IRAQI_RAG_MASTER / --mirror
+    mirror_output: Path | None = None
 
     @property
     def state_path(self) -> Path:

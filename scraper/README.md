@@ -73,6 +73,8 @@ python -m scraper scrape --limit 5 -o sources/scrape_smoke.jsonl --delay 1.5
 into master without duplicate `lawBookID`s):
 
 ```powershell
+# Keep a second master (e.g. Masadir) current — env or --mirror
+$env:IRAQI_RAG_MASTER = "C:\iraqi-law-rag\sources\laws_master.jsonl"
 python -m scraper sync --limit 5 -o sources/laws_master.jsonl
 python -m scraper sync --from-date 2026-07-01 --limit 20 -o sources/laws_master.jsonl `
   --delta sources/delta_latest.jsonl
@@ -85,7 +87,7 @@ python -m scraper merge --into sources/laws_master.jsonl sources/delta_latest.js
 ```
 
 See [`docs/CORPUS_SYNC.md`](../docs/CORPUS_SYNC.md) for identity, watermark,
-and release packaging.
+Masadir mirror (`IRAQI_RAG_MASTER` / `--mirror`), and release packaging.
 
 Metadata-only inventory (no detail pages / empty `full_text`):
 

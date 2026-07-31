@@ -14,7 +14,7 @@ from scraper.config import (
     DEFAULT_STATE_DIR,
     ScraperConfig,
 )
-from scraper.merge import merge_jsonl
+from scraper.merge import merge_jsonl, mirror_master_file, resolve_mirror_path
 from scraper.scrape import probe_connectivity, run_scrape
 from scraper.state import ScrapeState, load_existing_ids
 from scraper.sync import run_sync
@@ -140,6 +140,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip detail pages (empty full_text)",
     )
+    sync_p.add_argument(
+        "--mirror",
+        type=Path,
+        default=None,
+        help=(
+            "Also copy the updated master here after sync "
+            "(default: IRAQI_RAG_MASTER env if set — e.g. Masadir sources/laws_master.jsonl)"
+        ),
+    )
 
     merge_p = sub.add_parser(
         "merge",
@@ -162,6 +171,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Also append changed records to this delta JSONL",
+    )
+    merge_p.add_argument(
+        "--mirror",
+        type=Path,
+        default=None,
+        help=(
+            "Also copy the updated master here after merge "
+            "(default: IRAQI_RAG_MASTER env if set)"
+        ),
     )
 
     probe_p = sub.add_parser(
@@ -207,6 +225,10 @@ def _config_from_args(args: argparse.Namespace) -> ScraperConfig:
         cfg.delta_path = Path(args.delta)
     if getattr(args, "stop_after_known", None) is not None:
         cfg.sync_stop_after_known = int(args.stop_after_known)
+    if hasattr(args, "mirror"):
+        cfg.mirror_output = resolve_mirror_path(
+            Path(args.mirror) if args.mirror else None
+        )
     return cfg
 
 
@@ -244,12 +266,18 @@ def main(argv: list[str] | None = None) -> int:
             if not Path(p).is_file():
                 print(f"[merge] missing incoming file: {p}", file=sys.stderr)
                 return 2
+        into = Path(args.into)
         stats = merge_jsonl(
-            Path(args.into),
+            into,
             [Path(p) for p in args.incoming],
             delta_path=Path(args.delta) if args.delta else None,
         )
         print(json.dumps(stats.as_dict(), ensure_ascii=False, indent=2))
+        mirrored = mirror_master_file(
+            into, resolve_mirror_path(Path(args.mirror) if args.mirror else None)
+        )
+        if mirrored is not None:
+            print(f"[merge] mirrored master → {mirrored}", file=sys.stderr)
         return 0
 
     cfg = _config_from_args(args)

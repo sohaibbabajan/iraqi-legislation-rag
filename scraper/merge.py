@@ -4,12 +4,47 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from scraper.identity import content_fingerprint, ensure_extension_fields, record_identity
+
+# Sibling Masadir (or any second checkout) can set this so sync/merge
+# keeps a second master copy current without a manual copy step.
+MIRROR_ENV = "IRAQI_RAG_MASTER"
+
+
+def resolve_mirror_path(explicit: Path | None = None) -> Path | None:
+    """CLI ``--mirror`` wins; else ``IRAQI_RAG_MASTER`` if set."""
+    if explicit is not None:
+        return Path(explicit)
+    raw = (os.environ.get(MIRROR_ENV) or "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def mirror_master_file(source: Path, dest: Path | None) -> Path | None:
+    """
+    Copy ``source`` → ``dest`` after a successful sync/merge rewrite.
+
+    No-op when dest is unset or resolves to the same path as source.
+    Returns the dest path when a copy ran, else None.
+    """
+    if dest is None:
+        return None
+    src = Path(source).resolve()
+    dst = Path(dest).resolve()
+    if src == dst:
+        return None
+    if not src.is_file():
+        raise FileNotFoundError(f"mirror source missing: {src}")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return dst
 
 
 @dataclass

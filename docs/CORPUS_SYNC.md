@@ -59,7 +59,8 @@ dedupe is the identity set in the master JSONL**, not the watermark alone
 ```text
 delta / scrape output  ──►  scraper.merge  ──►  laws_master.jsonl (atomic rewrite)
                                 │
-                                └── optional sources/delta_YYYYMMDD.jsonl
+                                ├── optional sources/delta_YYYYMMDD.jsonl
+                                └── optional mirror (IRAQI_RAG_MASTER / --mirror)
 ```
 
 ```powershell
@@ -70,6 +71,20 @@ python -m scraper sync -o sources/laws_master.jsonl --delta sources/delta_latest
 `merge` loads the master index by identity, applies incoming upserts, writes
 via temp file + replace. `package_corpus_release.py` then emits
 `sha256` + manifest for the Release asset.
+
+## Keep Masadir (or a second checkout) in sync
+
+The toolkit master and Masadir’s `sources/laws_master.jsonl` are separate
+files. After `sync` / `merge`, copy the updated master to the second path so
+ingest does not run on a stale corpus.
+
+| Mechanism | Example |
+|---|---|
+| Env (preferred for this machine) | `$env:IRAQI_RAG_MASTER = "C:\iraqi-law-rag\sources\laws_master.jsonl"` |
+| Flag | `python -m scraper sync -o sources/laws_master.jsonl --mirror C:\iraqi-law-rag\sources\laws_master.jsonl` |
+
+Same flag/env works on `merge`. No-op when mirror path equals `-o` / `--into`.
+Do not git-commit either JSONL.
 
 ## Cloudflare / release honesty
 
@@ -104,6 +119,9 @@ Do **not** build textbook ingest yet. Extension point:
 ## CLI cheat sheet
 
 ```powershell
+# Optional: keep Masadir master current on every sync/merge
+$env:IRAQI_RAG_MASTER = "C:\iraqi-law-rag\sources\laws_master.jsonl"
+
 python -m scraper probe
 python -m scraper sync --limit 5 -o sources/laws_master.jsonl
 python -m scraper sync --from-date 2026-07-01 --limit 20
