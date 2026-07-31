@@ -69,6 +69,24 @@ Smoke scrape (few records → local JSONL, gitignored under `sources/`):
 python -m scraper scrape --limit 5 -o sources/scrape_smoke.jsonl --delay 1.5
 ```
 
+**Incremental sync** (preferred for catching newly published laws — upserts
+into master without duplicate `lawBookID`s):
+
+```powershell
+python -m scraper sync --limit 5 -o sources/laws_master.jsonl
+python -m scraper sync --from-date 2026-07-01 --limit 20 -o sources/laws_master.jsonl `
+  --delta sources/delta_latest.jsonl
+```
+
+Offline merge of a delta into master:
+
+```powershell
+python -m scraper merge --into sources/laws_master.jsonl sources/delta_latest.jsonl
+```
+
+See [`docs/CORPUS_SYNC.md`](../docs/CORPUS_SYNC.md) for identity, watermark,
+and release packaging.
+
 Metadata-only inventory (no detail pages / empty `full_text`):
 
 ```powershell
@@ -91,7 +109,9 @@ python -m scraper status -o sources/laws_master.jsonl
 ```
 
 Idempotency: existing `lawBookID`s already present in the output JSONL are
-skipped. Ctrl-C and re-run safely. State tracks `last_page` and failures.
+skipped on `scrape`. Prefer `sync` / `merge` for upserts that rewrite the
+master without duplicate lines. Ctrl-C and re-run safely. State tracks
+`last_page`, watermarks, and failures.
 
 ## Normalize shape
 

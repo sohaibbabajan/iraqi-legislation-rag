@@ -124,11 +124,13 @@ scripts/package_corpus_release.py
 
 **Most users should download a JSONL release**, not scrape. iraqld sits behind
 Cloudflare; unattended cron is **not** a supported guarantee — see
-[docs/SCRAPING.md](docs/SCRAPING.md).
+[docs/SCRAPING.md](docs/SCRAPING.md) and [docs/CORPUS_SYNC.md](docs/CORPUS_SYNC.md).
 
 ```powershell
 python -m scraper probe                          # live CF honesty check
-python -m scraper scrape --limit 5 -o sources/scrape_smoke.jsonl
+python -m scraper sync --limit 5 -o sources/laws_master.jsonl   # incremental new laws
+python -m scraper merge --into sources/laws_master.jsonl sources/delta.jsonl
+python -m scraper scrape --limit 5 -o sources/scrape_smoke.jsonl  # full-walk smoke
 python scripts/package_corpus_release.py sources/sample_laws.jsonl `
   --corpus-version 0.1.0-sample --out-dir docs/examples
 ```

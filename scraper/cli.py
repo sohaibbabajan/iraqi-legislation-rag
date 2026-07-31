@@ -14,8 +14,10 @@ from scraper.config import (
     DEFAULT_STATE_DIR,
     ScraperConfig,
 )
+from scraper.merge import merge_jsonl
 from scraper.scrape import probe_connectivity, run_scrape
 from scraper.state import ScrapeState, load_existing_ids
+from scraper.sync import run_sync
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,7 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Fetch Iraqi legislation catalog records from iraqld and write "
             "law_record JSONL. Snapshot releases are the supported path for "
-            "most users; this scraper is maintainer / attended tooling."
+            "most users; this scraper is maintainer / attended tooling. "
+            "See docs/CORPUS_SYNC.md for incremental sync + merge."
         ),
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -64,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="Seconds to wait for operator to clear CF in Playwright",
         )
 
-    scrape_p = sub.add_parser("scrape", help="List catalog + fetch details → JSONL")
+    scrape_p = sub.add_parser("scrape", help="Full / resume catalog walk → JSONL")
     add_common(scrape_p)
     scrape_p.add_argument(
         "-o",
@@ -83,12 +86,82 @@ def build_parser() -> argparse.ArgumentParser:
     scrape_p.add_argument(
         "--refresh",
         action="store_true",
-        help="Re-fetch even if lawBookID already in output (appends duplicates — avoid)",
+        help="Re-fetch even if lawBookID already in output (appends — prefer merge)",
     )
     scrape_p.add_argument(
         "--metadata-only",
         action="store_true",
         help="Write catalog fields only (empty full_text) — faster smoke / inventory",
+    )
+
+    sync_p = sub.add_parser(
+        "sync",
+        help="Incremental: discover new laws → fetch → upsert into master (no dups)",
+    )
+    add_common(sync_p)
+    sync_p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help=f"Master JSONL to upsert into (default {DEFAULT_OUTPUT})",
+    )
+    sync_p.add_argument("--page-size", type=int, default=50)
+    sync_p.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Stop after N newly discovered records (smoke: --limit 5)",
+    )
+    sync_p.add_argument(
+        "--from-date",
+        default=None,
+        help="Catalog fromDate filter (e.g. 2026-01-01) for date-window sync",
+    )
+    sync_p.add_argument(
+        "--to-date",
+        default=None,
+        help="Catalog toDate filter",
+    )
+    sync_p.add_argument(
+        "--delta",
+        type=Path,
+        default=None,
+        help="Append only new/updated records to this JSONL (optional small delta)",
+    )
+    sync_p.add_argument(
+        "--stop-after-known",
+        type=int,
+        default=None,
+        help="Stop after this many consecutive already-known ids (default 2× page size)",
+    )
+    sync_p.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="Skip detail pages (empty full_text)",
+    )
+
+    merge_p = sub.add_parser(
+        "merge",
+        help="Upsert one or more JSONL files into a master without duplicate identities",
+    )
+    merge_p.add_argument(
+        "--into",
+        type=Path,
+        required=True,
+        help="Master JSONL path (created if missing)",
+    )
+    merge_p.add_argument(
+        "incoming",
+        nargs="+",
+        type=Path,
+        help="Incoming JSONL file(s) to merge",
+    )
+    merge_p.add_argument(
+        "--delta",
+        type=Path,
+        default=None,
+        help="Also append changed records to this delta JSONL",
     )
 
     probe_p = sub.add_parser(
@@ -126,6 +199,14 @@ def _config_from_args(args: argparse.Namespace) -> ScraperConfig:
         cfg.skip_existing = False
     if getattr(args, "metadata_only", False):
         cfg.metadata_only = True
+    if getattr(args, "from_date", None):
+        cfg.from_date = str(args.from_date)
+    if getattr(args, "to_date", None):
+        cfg.to_date = str(args.to_date)
+    if getattr(args, "delta", None):
+        cfg.delta_path = Path(args.delta)
+    if getattr(args, "stop_after_known", None) is not None:
+        cfg.sync_stop_after_known = int(args.stop_after_known)
     return cfg
 
 
@@ -146,6 +227,10 @@ def main(argv: list[str] | None = None) -> int:
                     "state_fetched": len(state.fetched_ids),
                     "state_failed": len(state.failed_ids),
                     "state_mode": state.mode,
+                    "watermark_lawBookID": state.watermark_lawBookID,
+                    "watermark_date_iso": state.watermark_date_iso,
+                    "catalog_total_count": state.catalog_total_count,
+                    "last_sync_at": state.last_sync_at,
                     "state_notes": state.notes,
                 },
                 ensure_ascii=False,
@@ -154,11 +239,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.cmd == "merge":
+        for p in args.incoming:
+            if not Path(p).is_file():
+                print(f"[merge] missing incoming file: {p}", file=sys.stderr)
+                return 2
+        stats = merge_jsonl(
+            Path(args.into),
+            [Path(p) for p in args.incoming],
+            delta_path=Path(args.delta) if args.delta else None,
+        )
+        print(json.dumps(stats.as_dict(), ensure_ascii=False, indent=2))
+        return 0
+
     cfg = _config_from_args(args)
     if args.cmd == "probe":
         return probe_connectivity(cfg)
     if args.cmd == "scrape":
         return run_scrape(cfg)
+    if args.cmd == "sync":
+        return run_sync(cfg)
     parser.error(f"unknown command {args.cmd}")
     return 2
 

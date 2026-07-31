@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from scraper.config import ScraperConfig
+from scraper.identity import DEFAULT_SOURCE_TYPE
 
 _ARABIC_INDIC = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
 
@@ -74,6 +75,7 @@ def normalize_record(
         "articles": catalog.get("articles"),
         "category": _str_or_empty(catalog.get("category")),
         "classification": _str_or_empty(catalog.get("classification")),
+        "corpus_id": f"{DEFAULT_SOURCE_TYPE}:{law_id}",
         "country": _str_or_empty(catalog.get("country")),
         "date_iso": parse_date_iso(law_date, tacks_date),
         "full_text": full_text,
@@ -93,6 +95,7 @@ def normalize_record(
         "lawValid": law_valid if law_valid in ("Y", "N", None) else _str_or_empty(law_valid),
         "lawYear": arabic_digits_to_ascii(_str_or_empty(catalog.get("lawYear"))),
         "pdf_url": cfg.pdf_url(law_image),
+        "source_type": DEFAULT_SOURCE_TYPE,
         "source_url": cfg.detail_url(law_id),
         "status_label": status_from_valid(
             _str_or_empty(law_valid) if law_valid is not None else None,

@@ -70,10 +70,13 @@ occasionally refresh the snapshot.
 ## Rate limits & resume
 
 - Default `--delay 1.0` second between requests.
-- Output JSONL append + skip-by-`lawBookID`.
-- State: `cache/scraper/state.json` (`last_page`, fetched/failed ids).
-- Changelog: `cache/scraper/changelog.jsonl` (new/updated ids for incremental
-  ingest later).
+- Output JSONL append + skip-by-`lawBookID` (full `scrape`).
+- Incremental **`sync`**: newest-first discovery → upsert merge (no duplicate
+  identities). Watermark + changelog under `cache/scraper/`.
+- Design: [`docs/CORPUS_SYNC.md`](CORPUS_SYNC.md).
+
+- State: `cache/scraper/state.json` (`last_page`, watermarks, fetched/failed ids).
+- Changelog: `cache/scraper/changelog.jsonl` (new/updated ids).
 
 ## Packaging
 

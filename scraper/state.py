@@ -19,6 +19,11 @@ class ScrapeState:
     failed_ids: list[int] = field(default_factory=list)
     mode: str = "http"
     notes: str = ""
+    # Incremental sync watermarks (informational; master JSONL is authoritative)
+    watermark_lawBookID: int | None = None
+    watermark_date_iso: str = ""
+    catalog_total_count: int | None = None
+    last_sync_at: float | None = None
 
     def mark_ok(self, law_id: int) -> None:
         if law_id not in self.fetched_ids:
@@ -44,6 +49,7 @@ class ScrapeState:
         if not path.is_file():
             return cls()
         data = json.loads(path.read_text(encoding="utf-8"))
+        wm = data.get("watermark_lawBookID")
         return cls(
             started_at=float(data.get("started_at") or time.time()),
             updated_at=float(data.get("updated_at") or time.time()),
@@ -53,6 +59,10 @@ class ScrapeState:
             failed_ids=[int(x) for x in data.get("failed_ids") or []],
             mode=str(data.get("mode") or "http"),
             notes=str(data.get("notes") or ""),
+            watermark_lawBookID=int(wm) if wm is not None else None,
+            watermark_date_iso=str(data.get("watermark_date_iso") or ""),
+            catalog_total_count=data.get("catalog_total_count"),
+            last_sync_at=data.get("last_sync_at"),
         )
 
 

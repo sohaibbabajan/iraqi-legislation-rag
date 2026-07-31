@@ -40,6 +40,11 @@ class ScraperConfig:
     headed: bool = True  # Playwright: visible browser for CF challenge
     challenge_wait_s: float = 120.0
     extra_headers: dict[str, str] = field(default_factory=dict)
+    # Incremental sync
+    from_date: str | None = None
+    to_date: str | None = None
+    delta_path: Path | None = None
+    sync_stop_after_known: int | None = None
 
     @property
     def state_path(self) -> Path:
