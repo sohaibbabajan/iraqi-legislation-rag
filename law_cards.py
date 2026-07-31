@@ -463,7 +463,9 @@ def laws_matching_lexicon_aliases(
     for r in rows:
         alias = r.get("alias") or ""
         an = r.get("alias_norm") or normalize_ar(alias)
-        if len(an) < _MIN_ALIAS_LEN or an not in qn:
+        # Substring match: require a meaningful phrase. Bare «قانون» /
+        # «اهلي» flood ~hundreds of lids and stall/crash LanceDB pulls.
+        if len(an) < 8 or an not in qn:
             continue
         lid = int(r.get("law_book_id") or 0)
         if not lid:
@@ -473,7 +475,13 @@ def laws_matching_lexicon_aliases(
         if score is None or score <= 0:
             continue
         scored[lid] = max(scored.get(lid, 0.0), score)
-    return [lid for lid, _ in sorted(scored.items(), key=lambda x: (-x[1], -x[0]))]
+    if not scored:
+        return []
+    best = max(scored.values())
+    # Keep near-best only so a long named alias beats short generics.
+    keep = {lid: s for lid, s in scored.items() if s >= best - 3}
+    ranked = sorted(keep.items(), key=lambda x: (-x[1], -x[0]))
+    return [lid for lid, _ in ranked[:12]]
 
 
 def strongest_lexicon_alias_len(
@@ -494,7 +502,7 @@ def strongest_lexicon_alias_len(
     for r in rows:
         alias = r.get("alias") or ""
         an = r.get("alias_norm") or normalize_ar(alias)
-        if len(an) < _MIN_ALIAS_LEN or an not in qn:
+        if len(an) < 8 or an not in qn:
             continue
         title = r.get("title") or ""
         score = card_alias_routing_score(alias or an, title, question)

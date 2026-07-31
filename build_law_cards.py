@@ -10,12 +10,12 @@ CRITICAL: these artifacts are for routing/UI only. Never inject cards into
 the answer LLM context (see law_cards.py / docs/ARCHITECTURE.md).
 
 Resumable by law_book_id (skips ids already in the cards file).
-Concurrent by default (--workers 8); drop to 4 if OpenRouter 429s pile up.
+Concurrent by default (--workers 12); try 16 if healthy, drop to 8/4 on 429s.
 
     python build_law_cards.py --sample
     python build_law_cards.py --limit 20
     python build_law_cards.py --priority --limit 100
-    python build_law_cards.py --workers 8
+    python build_law_cards.py --workers 16
     python build_law_cards.py --rebuild-lexicon-only
 """
 
@@ -60,6 +60,7 @@ _SIBLING_MASTER = Path(r"C:\iraqi-law-rag\sources\laws_master.jsonl")
 _SIBLING_ENV = Path(r"C:\iraqi-law-rag\.env")
 
 _LOG_LOCK = threading.Lock()
+_THREAD_LOCAL = threading.local()
 
 
 def _bootstrap_env() -> None:
@@ -230,6 +231,23 @@ def _make_session(api_key: str) -> requests.Session:
         "HTTP-Referer": "https://github.com/sohaibbabajan/iraqi-legislation-rag",
         "X-Title": "iraqi-legislation-rag law cards",
     })
+    # Keep connections warm under high concurrency (OpenRouter + TLS).
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=4,
+        pool_maxsize=4,
+        max_retries=0,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def _thread_session(api_key: str) -> requests.Session:
+    """Per-worker Session reuse (requests.Session is not thread-safe)."""
+    session = getattr(_THREAD_LOCAL, "session", None)
+    if session is None:
+        session = _make_session(api_key)
+        _THREAD_LOCAL.session = session
     return session
 
 
@@ -287,11 +305,8 @@ def _process_one(
     lid = int(rec.get("lawBookID") or 0)
     title = (rec.get("lawTitle") or "")[:60]
     _log(f"[{index}/{total}] {lid} {title}")
-    session = _make_session(api_key)
-    try:
-        card, cost, pin, pout = generate_card(session, rec, models)
-    finally:
-        session.close()
+    session = _thread_session(api_key)
+    card, cost, pin, pout = generate_card(session, rec, models)
     if card is None:
         _log(f"  FAILED {lid}")
         return False, cost, pin, pout
@@ -325,8 +340,9 @@ def main() -> None:
     ap.add_argument("--sleep", type=float, default=0.0,
                     help="seconds sleep after each successful call "
                          "(default 0; use ~0.15 only for --workers 1)")
-    ap.add_argument("--workers", type=int, default=8,
-                    help="concurrent OpenRouter calls (default 8; try 4 if 429s)")
+    ap.add_argument("--workers", type=int, default=12,
+                    help="concurrent OpenRouter calls (default 12; try 16, "
+                         "drop to 8/4 if 429s)")
     ap.add_argument("--dry-run", action="store_true",
                     help="list candidates only; no API calls")
     ap.add_argument("--rebuild-lexicon-only", action="store_true",
@@ -433,9 +449,9 @@ def main() -> None:
         f"rate={rate:.2f} cards/s workers={args.workers}"
     )
     _log(
-        "Resume full corpus: python build_law_cards.py --workers 8 "
+        "Resume full corpus: python build_law_cards.py --workers 16 "
         "(skips law_book_ids already in cache/law_cards.jsonl; "
-        "drop to --workers 4 if OpenRouter 429s dominate)"
+        "drop to --workers 8/4 if OpenRouter 429s dominate)"
     )
 
 

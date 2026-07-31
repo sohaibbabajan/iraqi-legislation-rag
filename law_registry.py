@@ -628,6 +628,7 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
     best_len = 0
 
     # Prefer compact lexicon sidecar when present (built by build_law_cards.py).
+    # When it has rows, skip the O(n_cards) scan — lexicon already encodes aliases.
     try:
         from law_cards import load_alias_lexicon, laws_matching_lexicon_aliases
         from law_cards import strongest_lexicon_alias_len
@@ -636,6 +637,14 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
             best_len = max(best_len, strongest_lexicon_alias_len(question, lex))
             for lid in laws_matching_lexicon_aliases(question, lex):
                 scored.append((float(best_len), lid))
+            scored.sort(key=lambda x: (-x[0], -x[1]))
+            ids: list[int] = []
+            seen: set[int] = set()
+            for _, lid in scored:
+                if lid not in seen:
+                    seen.add(lid)
+                    ids.append(lid)
+            return ids, best_len
     except Exception:
         pass
 
@@ -644,7 +653,7 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
     except Exception:
         card_alias_routing_score = None  # type: ignore[assignment]
 
-    for card in load_law_cards():
+    for card in load_law_cards().values():
         try:
             lid = int(card.get("law_book_id"))
         except (TypeError, ValueError):
@@ -666,8 +675,8 @@ def laws_matching_card_aliases(question: str) -> tuple[list[int], int]:
                 scored.append((float(len(an)), lid))
 
     scored.sort(key=lambda x: (-x[0], -x[1]))
-    ids: list[int] = []
-    seen: set[int] = set()
+    ids = []
+    seen = set()
     for _, lid in scored:
         if lid not in seen:
             seen.add(lid)
