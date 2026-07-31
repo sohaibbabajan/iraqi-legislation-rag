@@ -399,12 +399,12 @@ Actions 1–3 from §7 done without further card spend:
 
 Recorded recall@6 (12-case suite) — see [`docs/BASELINES.md`](BASELINES.md):
 
-| Mode | Cards | Gate | After exact-art scope (`99228cd`) |
-|------|-------|-----:|----------------------------------:|
-| hybrid | on | 11/12 | **12/12** |
-| hybrid | off | 11/12 | **12/12** |
-| vector-only | on | 11/12 | (re-measure morning; expect ~12/12) |
-| vector-only | off | 11/12 | (re-measure morning; expect ~12/12) |
+| Mode | Cards | Gate | After exact-art scope (`99228cd`) | Morning A/B (2026-07-31) |
+|------|-------|-----:|----------------------------------:|-------------------------:|
+| hybrid | on | 11/12 | **12/12** | **12/12** |
+| hybrid | off | 11/12 | **12/12** | **12/12** |
+| vector-only | on | 11/12 | — | **12/12** |
+| vector-only | off | 11/12 | — | **12/12** |
 
 **Cards did not improve recall** (on == off at both checkpoints). Gate fail was
 `article_exact_labor`; fixed at **$0** by scoping exact-article retrieval to the

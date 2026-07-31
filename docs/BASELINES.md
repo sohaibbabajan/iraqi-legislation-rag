@@ -32,11 +32,34 @@ Still **no cards delta**. Unlock was law-scoped exact-article retrieval, not LLM
 - `SEED_ALIAS_RULES`: 5 → **46**
 - `embed_articles.py`: text cap + HTTP 400 bisect (ready; **not spent**)
 
-## Morning recommendation
+## Morning vector-only A/B (2026-07-31 evening) — **DONE**
 
-1. Re-measure vector-only A/B under clean `master` (expect ~12/12; low priority).
-2. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
-3. Alias safety (تعديل/بيان scoring + base-code-hijack reject) must stay on for any card routing.
+Re-measure under `master` after exact-article scope + full cards. Store via
+`IRAQI_RAG_DB_DIR=C:\iraqi-law-rag\lancedb` (chunks **99,377** → **99,433** mid-run
+while a peer ingest was appending; all four modes still **12/12**).
+
+| Mode | Cards | recall@6 | Fail |
+|---|---|---:|---|
+| hybrid | on | **12/12 (100%)** | none |
+| hybrid | off (`--no-cards`) | **12/12 (100%)** | none |
+| vector-only | on | **12/12 (100%)** | none |
+| vector-only | off (`--no-cards`) | **12/12 (100%)** | none |
+
+**Hybrid vs vector delta: none** on this suite. **Cards A/B delta: none.**
+Paid OpenRouter: question embeds only (≪$0.01). Logs (gitignored):
+`cache/eval_4a_hybrid_cards_{on,off}.log`, `cache/eval_4a_vector_cards_{on,off}.log`.
+
+### 4b article-embed sample — **SKIPPED**
+
+No recall fails and no definitional/precision gap on the 12-case suite.
+`docs/SPEND_REVIEW.md` keeps article embed **GO-CONDITIONAL** on such a gap;
+morning item 2 said spend ≤$0.20 only if seeds can't close it. **Do not run**
+`embed_articles.py` until a precision harness fails without it.
+
+## Remaining optional follow-ups
+
+1. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
+2. Alias safety (تعديل/بيان scoring + base-code-hijack reject) must stay on for any card routing.
 
 ## Targeted priority cards (2026-07-31 night, after user GO)
 
