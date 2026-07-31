@@ -28,6 +28,7 @@ ANSWER_CACHE_FILE = CACHE_DIR / "answers.jsonl"
 ARTICLE_INDEX_FILE = CACHE_DIR / "article_index.jsonl"
 LAW_CARDS_FILE = CACHE_DIR / "law_cards.jsonl"  # optional P1 LLM cards (routing/UI only)
 ALIAS_LEXICON_FILE = CACHE_DIR / "alias_lexicon.jsonl"
+AMENDMENT_LINKS_FILE = CACHE_DIR / "amendment_links.jsonl"  # معدل ← تعديل map
 LAWS_MASTER = SOURCES_DIR / "laws_master.jsonl"
 SAMPLE_LAWS = SOURCES_DIR / "sample_laws.jsonl"
 

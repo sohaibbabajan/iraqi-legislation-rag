@@ -56,6 +56,7 @@ class AskResult:
     verify_warning: str | None = None
     truncated: bool = False
     amended_titles: list[str] = field(default_factory=list)
+    amendment_links: list[dict] = field(default_factory=list)
     usage: dict = field(default_factory=dict)
     cost_line: str = ""
     cost: dict = field(default_factory=dict)
@@ -266,11 +267,21 @@ class RagEngine:
             )
 
         amended = []
-        for r in rows:
-            if (r.get("law_flag") or "") in ("معدل", "تعديل"):
-                t = (r.get("title") or "")[:75]
+        amendment_links: list[dict] = []
+        try:
+            from amendment_links import get_amendment_index
+            _am_idx = get_amendment_index()
+            amendment_links = _am_idx.warning_entries(rows)
+            for e in amendment_links:
+                t = (e.get("title") or "")[:75]
                 if t and t not in amended:
                     amended.append(t)
+        except Exception:
+            for r in rows:
+                if (r.get("law_flag") or "") in ("معدل", "تعديل"):
+                    t = (r.get("title") or "")[:75]
+                    if t and t not in amended:
+                        amended.append(t)
 
         # Exact-article lookup — prefer article defines over fat chunks
         art = parse_article_query(question)
@@ -305,6 +316,7 @@ class RagEngine:
                     answer=answer,
                     mode="lookup",
                     amended_titles=amended,
+                    amendment_links=amendment_links,
                 )
 
         context = build_context(rows)
@@ -343,6 +355,7 @@ class RagEngine:
             verify_warning=verify_warning,
             truncated=reported_trunc or heur_trunc,
             amended_titles=amended,
+            amendment_links=amendment_links,
         )
 
     def retrieve_only(self, question: str, k: int = 4,
@@ -374,6 +387,7 @@ def result_to_dict(res: AskResult) -> dict[str, Any]:
         "verify_warning": res.verify_warning,
         "truncated": res.truncated,
         "amended_titles": res.amended_titles,
+        "amendment_links": res.amendment_links,
         "disclaimer": disclaimer,
         "cost_line": res.cost_line,
         "cost": res.cost,

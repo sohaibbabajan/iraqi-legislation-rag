@@ -16,7 +16,8 @@ Default to Auto / cheaper models for coding, tests, pushes, and overnight follow
 
 ## Ported stack (OpenRouter-first)
 
-- `setup_store.py` — ingest `--api` → FTS → `build_law_registry.py` → `build_article_index.py` → `embed_articles.py` → `scripts/verify_store.py`
+- `setup_store.py` — ingest `--api` → FTS → `build_law_registry.py` → `build_article_index.py` → `build_amendment_links.py` → `embed_articles.py` → `scripts/verify_store.py`
+- `build_amendment_links.py` — offline معدل ← تعديل map (`cache/amendment_links.jsonl`, $0; no bare num/year)
 - `build_law_cards.py` — optional P1 LLM cards + `alias_lexicon.jsonl` (routing/UI only; never answer context)
 - Retrieval: `query_plan.py` quotas + article defines (`lancedb/articles`); hybrid chunks as fallback
 - Optional: `cache/law_cards.jsonl` aliases via `law_registry.laws_matching_card_aliases`

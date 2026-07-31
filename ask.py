@@ -303,6 +303,11 @@ DETAILED_SYSTEM_PROMPT = """أنت مساعد قانوني متخصص في ال�
 
 def build_context(rows: list[dict]) -> str:
     """Prefer article-granularity rows; emit title once per law group when possible."""
+    try:
+        from amendment_links import get_amendment_index
+        _am_idx = get_amendment_index()
+    except Exception:
+        _am_idx = None
     parts = []
     last_title = None
     for i, r in enumerate(rows, 1):
@@ -313,6 +318,15 @@ def build_context(rows: list[dict]) -> str:
             bits.append(f"حالة: {status}")
         if flag in ("معدل", "تعديل"):
             bits.append(f"تنبيه: نص قد يكون معدّلا ({flag})")
+        if r.get("_amendment_pull"):
+            bits.append("مقتطف من قانون تعديل مرتبط")
+        if flag == "معدل" and _am_idx is not None:
+            amenders = _am_idx.amended_by(r.get("law_book_id"))
+            if amenders:
+                names = "؛ ".join(
+                    (a.get("title") or "")[:50] for a in amenders[:3]
+                )
+                bits.append(f"معدّل بـ: {names}")
         if r.get("granularity") == "article" or r.get("role") == "defines":
             lab = r.get("article_label") or ""
             if lab:
@@ -984,10 +998,18 @@ def retrieve(table, qvec: list[float], question: str, k: int,
         k=k,
         guaranteed_law_ids=scope_ids[:4] if plan.shape == Shape.MULTI_INSTRUMENT else None,
     )
-    if fused:
-        return fused
-    # Absolute fallback: old order-based merge
-    return _merge_rows(article_exact, base, title_rows, routed_rows, limit=k)
+    if not fused:
+        fused = _merge_rows(article_exact, base, title_rows, routed_rows, limit=k)
+    # Optional same-article chunks from linked تعديلات (sidecar; no LLM).
+    try:
+        from amendment_links import get_amendment_index, pull_amender_article_chunks
+        fused = pull_amender_article_chunks(
+            table, fused, get_amendment_index(),
+            qvec=qvec, where=where, max_extra=2,
+        )
+    except Exception:
+        pass
+    return fused
 
 
 def main():
@@ -1303,6 +1325,13 @@ def main():
         print("المصادر المسترجعة (اقرأها أولاً — هل هي القوانين الصحيحة؟)")
         print("=" * 70)
         amended_titles: list[str] = []
+        try:
+            from amendment_links import get_amendment_index
+            _am_idx = get_amendment_index()
+            _am_entries = _am_idx.warning_entries(rows)
+        except Exception:
+            _am_idx = None
+            _am_entries = []
         for i, r in enumerate(rows, 1):
             status = r.get("status_label") or ""
             flag = r.get("law_flag") or ""
@@ -1312,6 +1341,8 @@ def main():
                 title = (r.get("title") or "")[:75]
                 if title and title not in amended_titles:
                     amended_titles.append(title)
+            if r.get("_amendment_pull"):
+                mark += "  [تعديل مرتبط]"
             dist = r.get("_distance")
             rel = r.get("_relevance_score")
             if isinstance(rel, float):
@@ -1331,12 +1362,16 @@ def main():
                 for line in (r.get("text") or "").strip().splitlines():
                     print(f"       | {line}")
 
-        if amended_titles:
+        if _am_entries or amended_titles:
             print("\n⚠ تنبيه: بعض المصادر المسترجعة معلّمة كتعديل/معدّل. "
                   "نص المادة في قاعدة البيانات قد يسبق تعديلا لاحقا — "
                   "تحقق من الجريدة الرسمية قبل الاعتماد:")
-            for t in amended_titles:
-                print(f"   • {t}")
+            if _am_entries and _am_idx is not None:
+                for line in _am_idx.format_warning_lines(_am_entries):
+                    print(f"   • {line}" if not line.startswith(" ") else f"  {line}")
+            else:
+                for t in amended_titles:
+                    print(f"   • {t}")
 
         # --- Exact-article fast path: no generation, no verify ----------
         # Prefer article_index *defines* (or articles table) over fat chunks.

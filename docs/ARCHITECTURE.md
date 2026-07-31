@@ -16,10 +16,12 @@ flowchart LR
   jsonl --> routes
   jsonl --> art --> avec
   jsonl --> cards
+  jsonl --> amend[amendment_links]
   routes --> ask
   art --> ask
   avec --> ask
   cards -.->|aliases only| ask
+  amend --> ask
 ```
 
 ## Components
@@ -32,10 +34,12 @@ flowchart LR
 | `law_registry.py` | Instrument phrases, seed aliases, optional card lexicon, registry I/O |
 | `build_law_cards.py` | Upfront LLM cards → `cache/law_cards.jsonl` + `alias_lexicon.jsonl` |
 | `law_cards.py` | Card schema/parse + lexicon (**routing/UI only**) |
+| `build_amendment_links.py` | Offline معدل ← تعديل map → `cache/amendment_links.jsonl` ($0) |
+| `amendment_links.py` | Matching (title-contain / unique num-year / classification; no bare num/year) |
 | `query_plan.py` | Deterministic QueryPlan shapes + quota / diversity fusion |
 | `ask.py` | Hybrid + article defines + routed retrieve via QueryPlan |
 | `rag_service.py` | Same engine for CLI and HTTP |
-| `setup_store.py` | ingest → FTS → routes → article index → article embed → verify |
+| `setup_store.py` | ingest → FTS → routes → article index → amendment links → article embed → verify |
 | `build_article_index.py` | Deterministic `cache/article_index.jsonl` (`defines` vs `mentions`) |
 | `embed_articles.py` | OpenRouter bge-m3 embed of defines → LanceDB `articles` |
 | `scripts/verify_store.py` | Presence checks for FTS / routes / article_index / articles |
@@ -52,6 +56,26 @@ pytest tests/test_article_index.py -q
 
 Output: `cache/article_index.jsonl` — defining articles vs in-body citations.
 Wired into `setup_store.py` after routes (skip with `--skip-article-index`).
+
+## Amendment linkage (`معدل` ← `تعديل`)
+
+Iraqi laws are amended by *separate* instruments. A law can be `ساري` while
+chunk text is still pre-amendment. Offline sidecar (no LLM):
+
+```powershell
+python build_amendment_links.py
+python build_amendment_links.py --source sources/sample_laws.jsonl --write-sample-fixture
+pytest tests/test_amendment_links.py -q
+```
+
+Output: `cache/amendment_links.jsonl` (gitignored) — one row per base `معدل`
+with `amended_by[]`. Matching order: title-containment → unique `رقم N لسنة Y`
+→ classification / instrument-kind disambiguation; **refuse** ambiguous bare
+num/year (false friends like ١٨/١٩٣٥). Optional `lawNotes` repeal → `replaced_by`.
+
+Query-time: when a retrieved source is `معدل`, the ⚠ box lists linked amender
+titles; retrieve may pull up to 2 same-article chunks from amenders (reuses the
+question embedding — no extra LLM).
 
 ## P1a — article vectors + QueryPlan fusion
 

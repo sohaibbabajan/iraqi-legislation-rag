@@ -56,6 +56,8 @@ def main() -> None:
     # --- article index / embed / verify ---------------------------------
     ap.add_argument("--skip-article-index", action="store_true",
                     help="skip deterministic cache/article_index.jsonl build")
+    ap.add_argument("--skip-amendment-links", action="store_true",
+                    help="skip deterministic cache/amendment_links.jsonl build")
     ap.add_argument("--skip-article-embed", action="store_true",
                     help="skip OpenRouter embed of defines → lancedb/articles")
     ap.add_argument("--skip-verify", action="store_true",
@@ -88,6 +90,13 @@ def main() -> None:
         if args.limit:
             art_cmd += ["--limit", str(args.limit)]
         _run(art_cmd)
+
+    # Amendment links are $0 / deterministic — always rebuild unless skipped.
+    if not getattr(args, "skip_amendment_links", False):
+        am_cmd = ["build_amendment_links.py", "--source", str(source)]
+        if args.limit:
+            am_cmd += ["--limit", str(args.limit)]
+        _run(am_cmd)
 
     if not args.skip_article_embed and not args.skip_article_index:
         emb_cmd = ["embed_articles.py", "--api", "--source", str(source)]

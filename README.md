@@ -118,12 +118,20 @@ Use `--no-verify` while iterating on retrieval; leave verify on when judging ans
 ```
 common.py / ingest.py / ask.py   OpenRouter RAG core
 law_registry.py / build_*.py     confidence-gated law routing
-setup_store.py                   ingest → FTS → routes
+amendment_links.py               معدل ← تعديل sidecar ($0)
+setup_store.py                   ingest → FTS → routes → links
 eval_recall.py                   recall@k (no answer LLM)
 rag_service.py / web/app.py      shared engine + thin FastAPI
 schemas/ + sources/sample_*.jsonl
 scraper/                         maintainer scrape (releases preferred)
 scripts/package_corpus_release.py
+```
+
+Rebuild amendment links anytime (no API):
+
+```powershell
+python build_amendment_links.py
+pytest tests/test_amendment_links.py -q
 ```
 
 ## Scraper / corpus releases
