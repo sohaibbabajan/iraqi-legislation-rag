@@ -46,6 +46,7 @@ from common import (
     parse_article_query, extract_article_numbers, article_nums_list,
     is_exact_lookup_question, normalize_ar,
     title_search_needles, is_overview_question,
+    prefer_instrument_titled_rows, prefer_law_id_rows,
     load_dotenv, set_use_law_cards,
 )
 from query_plan import (
@@ -845,18 +846,47 @@ def retrieve(table, qvec: list[float], question: str, k: int,
     article_exact: list[dict] = []
     defining_articles: list[dict] = []
     if art_label:
+        # Scope exact defines to routed laws when available. Previously
+        # EXACT_ARTICLE forced law_ids=None, so art=75 from empty-title /
+        # unrelated statutes crowded out قانون العمل.
+        scoped = scope_ids[:8] if scope_ids else None
         article_exact = _article_exact_from_index(
             art_label,
-            law_ids=scope_ids[:8] if scope_ids and plan.shape != Shape.EXACT_ARTICLE else None,
+            law_ids=scoped,
             include_all=include_all,
             limit=k,
         )
+        if not article_exact and scoped:
+            loose = _article_exact_from_index(
+                art_label,
+                law_ids=None,
+                include_all=include_all,
+                limit=max(k * 3, 12),
+            )
+            # Named instrument in the question → drop unrelated art=N hits
+            article_exact = prefer_instrument_titled_rows(
+                loose, question, hard=True,
+            )
+        else:
+            article_exact = prefer_instrument_titled_rows(
+                article_exact, question,
+            )
         if db is not None:
             vect_arts = _search_articles_table(
                 db, qvec, question,
-                where=where, law_ids=scope_ids[:8] if scope_ids else None,
+                where=where, law_ids=scoped,
                 article_label=art_label, limit=k,
             )
+            if not vect_arts and scoped:
+                vect_arts = prefer_instrument_titled_rows(
+                    _search_articles_table(
+                        db, qvec, question,
+                        where=where, law_ids=None,
+                        article_label=art_label, limit=max(k * 2, 8),
+                    ),
+                    question,
+                    hard=True,
+                )
             # Prefer index defines first, then vector article hits
             seen = {r.get("chunk_id") for r in article_exact}
             for r in vect_arts:
@@ -871,14 +901,21 @@ def retrieve(table, qvec: list[float], question: str, k: int,
                 if where:
                     art_where = f"({where}) AND ({art_where})"
                 try:
-                    article_exact = (
+                    loose = (
                         table.search(qvec).metric("cosine")
-                        .where(art_where)
-                        .limit(k)
+                        .where(art_where, prefilter=True)
+                        .limit(max(k * 5, 20))
                         .to_list()
                     )
                 except Exception:
-                    article_exact = []
+                    loose = []
+                titled = prefer_instrument_titled_rows(
+                    loose, question, hard=True,
+                )
+                scoped_rows = prefer_law_id_rows(
+                    titled or loose, scoped, hard=bool(scoped),
+                )
+                article_exact = (scoped_rows or titled or loose)[:k]
 
     if plan.shape == Shape.DEFINITIONAL and db is not None:
         defining_articles = _search_articles_table(

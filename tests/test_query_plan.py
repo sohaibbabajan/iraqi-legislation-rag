@@ -18,6 +18,19 @@ def test_exact_article_shape():
     assert "article_exact" in quotas_dict(plan)
 
 
+def test_exact_article_scopes_named_law():
+    """Named statute + article must carry seed/phrase ids into scope."""
+    plan = plan_query(
+        "المادة 75 قانون العمل",
+        seed_ids=[32566, 28738],
+        phrase_ids=[32566],
+    )
+    assert plan.shape == Shape.EXACT_ARTICLE
+    assert 32566 in plan.scope_doc_ids
+    assert plan.scope_doc_ids[0] == 32566
+
+
+
 def test_article_analytical_shape():
     plan = plan_query("ما هي احكام المادة 75 من قانون العمل؟")
     assert plan.shape == Shape.ARTICLE_ANALYTICAL

@@ -386,6 +386,61 @@ def is_exact_lookup_question(question: str) -> bool:
     return not any(w in leftover for w in analytical)
 
 
+def prefer_instrument_titled_rows(
+    rows: list[dict],
+    question: str,
+    *,
+    hard: bool = False,
+) -> list[dict]:
+    """
+    When the question names an instrument (e.g. قانون العمل), prefer rows
+    whose title contains that phrase.
+
+    hard=False (default): if nothing matches, return rows unchanged.
+    hard=True: if the question names an instrument and nothing matches,
+    return [] so the caller can try another leg instead of unrelated art=N.
+    """
+    if not rows:
+        return rows
+    try:
+        from law_registry import extract_instrument_phrases
+        phrases = [
+            normalize_ar(p)
+            for p in extract_instrument_phrases(question or "")
+            if len(normalize_ar(p)) >= 6
+        ]
+    except Exception:
+        phrases = []
+    if not phrases:
+        return rows
+    matched = [
+        r for r in rows
+        if any(p in normalize_ar(r.get("title") or "") for p in phrases)
+    ]
+    if matched:
+        return matched
+    return [] if hard else rows
+
+
+def prefer_law_id_rows(
+    rows: list[dict],
+    law_ids: list[int] | None,
+    *,
+    hard: bool = False,
+) -> list[dict]:
+    """Prefer rows whose law_book_id is in law_ids; optional hard empty."""
+    if not rows or not law_ids:
+        return rows
+    allow = {int(x) for x in law_ids}
+    matched = [
+        r for r in rows
+        if int(r.get("law_book_id") or -1) in allow
+    ]
+    if matched:
+        return matched
+    return [] if hard else rows
+
+
 # --- Priority corpus -----------------------------------------------------
 # `ingest.py --priority` embeds only these first, so you get a usable system
 # in a few hours instead of waiting for all 99,377 chunks. These are the codes

@@ -269,8 +269,16 @@ def plan_query(
     scope: list[int] = []
     if shape == Shape.CITATION_KEY and citation_law_ids:
         scope = list(dict.fromkeys(int(x) for x in citation_law_ids))
-    elif shape in (Shape.NAMED_INSTRUMENT, Shape.DEFINITIONAL, Shape.MULTI_INSTRUMENT):
-        # Soft scope preference (not a hard filter unless citation)
+    elif shape in (
+        Shape.NAMED_INSTRUMENT,
+        Shape.DEFINITIONAL,
+        Shape.MULTI_INSTRUMENT,
+        Shape.EXACT_ARTICLE,
+        Shape.ARTICLE_ANALYTICAL,
+    ):
+        # Soft scope preference (not a hard filter unless citation).
+        # EXACT_ARTICLE / ARTICLE_ANALYTICAL need this so art=N defines are
+        # pulled from قانون العمل (etc.) instead of any statute with that number.
         for lid in list(phrase_ids) + list(seed_ids):
             if int(lid) not in scope:
                 scope.append(int(lid))

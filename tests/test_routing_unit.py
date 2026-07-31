@@ -128,6 +128,36 @@ def test_agrarian_not_preferred_over_ahli_phrase():
     assert 35340 in ids
 
 
+def test_prefer_instrument_title_filters_unrelated_art():
+    """المادة 75 قانون العمل must not keep empty/unrelated art=75 titles."""
+    from common import prefer_instrument_titled_rows, prefer_law_id_rows
+
+    q = "المادة 75 قانون العمل"
+    rows = [
+        {"chunk_id": "a", "law_book_id": 170, "title": "", "article_nums": ",75,"},
+        {
+            "chunk_id": "b",
+            "law_book_id": 647,
+            "title": "قانون انضمام العراق الى الاتفاقية الدولية الصحية",
+            "article_nums": ",75,",
+        },
+        {
+            "chunk_id": "c",
+            "law_book_id": 32566,
+            "title": "قانون العمل رقم ٣٧ لسنة ٢٠١٥",
+            "article_nums": ",75,",
+        },
+    ]
+    hard = prefer_instrument_titled_rows(rows, q, hard=True)
+    assert [r["chunk_id"] for r in hard] == ["c"], hard
+    soft = prefer_instrument_titled_rows(rows[:2], q, hard=False)
+    assert soft == rows[:2]  # no title match → unchanged when soft
+    empty = prefer_instrument_titled_rows(rows[:2], q, hard=True)
+    assert empty == []
+    scoped = prefer_law_id_rows(rows, [32566], hard=True)
+    assert [r["chunk_id"] for r in scoped] == ["c"]
+
+
 if __name__ == "__main__":
     test_instrument_phrases()
     test_phrase_match_ranks_2016()
@@ -139,4 +169,5 @@ if __name__ == "__main__":
     test_merge_order_high_prefers_routed()
     test_merge_order_low_prefers_hybrid()
     test_agrarian_not_preferred_over_ahli_phrase()
+    test_prefer_instrument_title_filters_unrelated_art()
     print("all routing unit tests passed")
