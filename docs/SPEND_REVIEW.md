@@ -376,3 +376,27 @@ Hard cap tonight: **~$10 OpenRouter credits remaining** (top-up morning).
 - After measurement, at most **one** targeted experiment ≤ **~$2** (priority cards
   ~$0.50 / 200, or article-embed fix + `--limit 2000` ~$0.20). Leave **~$8+**
   headroom for morning.
+
+---
+
+## Follow-up baselines (2026-07-31, cheap Auto)
+
+Actions 1–3 from §7 done without further card spend:
+
+1. `IRAQI_RAG_DB_DIR` + README docs — eval pointed at Masadir `lancedb` (99,377 chunks).
+2. `--no-cards` / `IRAQI_RAG_NO_CARDS` wired through `common.use_law_cards` →
+   `laws_matching_card_aliases` / ask / eval.
+3. `SEED_ALIAS_RULES` expanded **5 → 46**.
+
+Recorded recall@6 (12-case suite) — see [`docs/BASELINES_2026-07-31.md`](BASELINES_2026-07-31.md):
+
+| Mode | Cards | Score |
+|------|-------|------:|
+| hybrid | on | 11/12 |
+| hybrid | off | 11/12 |
+| vector-only | on | 11/12 |
+| vector-only | off | 12/12 |
+
+**Cards did not improve hybrid recall.** Vector-only was better without cards on
+this run. Continues to support **NO-GO** on finishing the 38k card build until a
+precision metric and a scored card-alias penalty exist.
