@@ -41,6 +41,9 @@ precision suite: PASS 9/17  FAIL 7  XFAIL 1  correct_law@3 13/17 (76%)
 `amend_link_penal_meta` alone (sidecar on disk, 30 amenders for lid 25860): **PASS**.
 Combined board: **10 PASS / 7 FAIL / 0 XFAIL**.
 
+Commits: toolkit [`dd4948a`](https://github.com/sohaibbabajan/iraqi-legislation-rag/commit/dd4948a) · Masadir [`93b8fac`](https://github.com/sohaibbabajan/iraqi-law-rag/commit/93b8fac).
+Cost: embeds only (≪$0.01).
+
 ## Notable FAILs (precision gaps recall@6 misses)
 
 | id | must@ | Fail reason |
