@@ -180,13 +180,24 @@ EVAL_CASES = [
 
 
 def _embed(session: requests.Session, q: str) -> list[float]:
-    r = session.post(
-        OPENROUTER_URL,
-        json={"model": OPENROUTER_EMBED_MODEL, "input": [q]},
-        timeout=60,
-    )
-    r.raise_for_status()
-    return r.json()["data"][0]["embedding"]
+    import time
+    last_err: Exception | None = None
+    for attempt in range(6):
+        r = session.post(
+            OPENROUTER_URL,
+            json={"model": OPENROUTER_EMBED_MODEL, "input": [q]},
+            timeout=60,
+        )
+        if r.status_code == 429:
+            wait = min(2 ** attempt, 30)
+            print(f"  (embed 429 — sleep {wait}s)", flush=True)
+            time.sleep(wait)
+            last_err = requests.HTTPError(f"429 after retries", response=r)
+            continue
+        r.raise_for_status()
+        return r.json()["data"][0]["embedding"]
+    assert last_err is not None
+    raise last_err
 
 
 def _row_articles(r: dict) -> str:
