@@ -34,5 +34,6 @@ Against Masadir store via `IRAQI_RAG_DB_DIR` (99,377 chunks), 12-case suite:
 | hybrid + cards | 11/12 |
 | hybrid + `--no-cards` | 11/12 |
 | `--vector-only` + cards | 11/12 |
+| `--vector-only` + `--no-cards` | 11/12 |
 
-Sole fail: `article_exact_labor` (art 75 hits without `قانون العمل` title). Cards do not move the score. See `cache/baselines/` and `docs/SPEND_REVIEW.md` (budget note). **No full card corpus; no overnight_p1 tonight.**
+Sole fail: `article_exact_labor` (art 75 hits without `قانون العمل` title). Cards do not move the score. See [`docs/BASELINES.md`](docs/BASELINES.md) and `docs/SPEND_REVIEW.md` (budget note). **No full card corpus; no overnight_p1 tonight.** Next: $0 exact-article + named-instrument scope.

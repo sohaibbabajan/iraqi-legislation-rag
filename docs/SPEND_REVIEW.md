@@ -388,15 +388,17 @@ Actions 1–3 from §7 done without further card spend:
    `laws_matching_card_aliases` / ask / eval.
 3. `SEED_ALIAS_RULES` expanded **5 → 46**.
 
-Recorded recall@6 (12-case suite) — see [`docs/BASELINES_2026-07-31.md`](BASELINES_2026-07-31.md):
+Recorded recall@6 (12-case suite) — see [`docs/BASELINES.md`](BASELINES.md):
 
 | Mode | Cards | Score |
 |------|-------|------:|
 | hybrid | on | 11/12 |
 | hybrid | off | 11/12 |
 | vector-only | on | 11/12 |
-| vector-only | off | 12/12 |
+| vector-only | off | 11/12 |
 
-**Cards did not improve hybrid recall.** Vector-only was better without cards on
-this run. Continues to support **NO-GO** on finishing the 38k card build until a
-precision metric and a scored card-alias penalty exist.
+**Cards did not improve recall** (on == off). Sole fail on all four cells:
+`article_exact_labor` (exact art=75 without `قانون العمل` title). A transient
+“vector `--no-cards` 12/12” was measured against an uncommitted WIP and is not
+the clean-`master` baseline. Continues to support **NO-GO** on finishing the
+38k card build until a precision metric and a scored card-alias penalty exist.
