@@ -61,6 +61,18 @@ morning item 2 said spend ≤$0.20 only if seeds can't close it. **Do not run**
 1. Optional later ≤$0.20: article-embed `--limit 2000` **only** if a definitional/precision harness shows a gap seeds can't close.
 2. Alias safety (تعديل/بيان scoring + base-code-hijack reject) must stay on for any card routing.
 
+## Hard / precision eval (2026-07-31)
+
+Recall@6 is saturated (12/12). Precision gaps live in
+[`docs/HARD_EVAL.md`](HARD_EVAL.md) + `python eval_precision.py`
+(17 cases, law_book_id @3 + article-on-law + amendment outrank forbids).
+
+Live hybrid/cards-on against this store: **PASS 9/17** (+ `amend_link_penal_meta`
+→ **10/17** with sidecar), **FAIL 7**, **correct_law@3 13/17 (76%)** — embeds
+only. Notable fails: عسكري hijacks on عقوبات/اصول, ذيول الخدمة المدنية, theft
+arts missing on base عقوبات, تعليم أهلي تعديل outrank. Do **not** spend on
+article embeds solely to chase this suite until seed/routing fixes are exhausted.
+
 ## Targeted priority cards (2026-07-31 night, after user GO)
 
 Preconditions shipped first: تعديل/بيان scoring + base-code-hijack reject on card/lexicon

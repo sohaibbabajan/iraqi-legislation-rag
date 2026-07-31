@@ -53,6 +53,7 @@ checkout), point this toolkit at it — **$0**, no copy required:
 $env:IRAQI_RAG_DB_DIR = "C:\iraqi-law-rag\lancedb"
 # optional: copy that repo's cache/law_registry.jsonl into this cache/
 python eval_recall.py --full
+python eval_precision.py          # hard law_id / article precision
 python ask.py "ما هي عقوبة السرقة؟" --no-verify
 ```
 
@@ -121,6 +122,8 @@ law_registry.py / build_*.py     confidence-gated law routing
 amendment_links.py               معدل ← تعديل sidecar ($0)
 setup_store.py                   ingest → FTS → routes → links
 eval_recall.py                   recall@k (no answer LLM)
+eval_precision.py                hard precision (law_id @3, embeds only)
+docs/HARD_EVAL.md                precision baselines + fail catalog
 rag_service.py / web/app.py      shared engine + thin FastAPI
 schemas/ + sources/sample_*.jsonl
 scraper/                         maintainer scrape (releases preferred)

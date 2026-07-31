@@ -29,7 +29,8 @@ Default to Auto / cheaper models for coding, tests, pushes, and overnight follow
 ## Measured baselines (2026-07-31 night)
 
 Against Masadir store via `IRAQI_RAG_DB_DIR` / `DB_DIR` (99,377 chunks), 12-case suite.
-Details: [`docs/BASELINES.md`](docs/BASELINES.md).
+Details: [`docs/BASELINES.md`](docs/BASELINES.md). Precision / hard cases:
+[`docs/HARD_EVAL.md`](docs/HARD_EVAL.md) (`python eval_precision.py`).
 
 **Gate (cards A/B, before exact-article scope):** all four cells **11/12** — cards on == off.
 
