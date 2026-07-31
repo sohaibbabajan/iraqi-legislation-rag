@@ -57,32 +57,31 @@ Cards on disk after run: **2,438** unique (`law_book_id`; 2,458 JSONL lines). Le
 
 **Cards A/B delta: still none.** Paid OpenRouter this experiment: **$0.045** (no article embeds). Overnight task / watchdog left disabled.
 
-## Full in-force corpus (2026-07-31, user said `full 38k`)
+## Full in-force corpus (2026-07-31, user said `full 38k`) — **DONE**
 
-User override of prior NO-GO. Single long-lived resumable process (not `overnight_p1`, not Task Scheduler):
+User override of prior NO-GO. Resumable JSONL (skips existing `law_book_id`). Alias safety ON. No Task Scheduler.
+
+| Phase | Workers | Unique (start→end) | Rate | Cost (that phase) | Log |
+|---|---:|---|---:|---:|---|
+| early / resume | **4** | 2,438 → **~6,981** | ~**19**/min | (prior + resume) | `cache/full_law_cards_2026-07-31*.log` |
+| speed-up finish | **16** | 7,001 → **37,376** | ~**300**/min (peak ~370) | **$7.737** | `cache/full_law_cards_2026-07-31_fast.log` |
+
+Final Done line (`--workers 16`): `wrote=30375 failed=646 cards_file=37376 lexicon_rows=147540 … cost=$7.737341 elapsed=5826.0s rate=5.21 cards/s`.
+
+Registry in-force titles: **37,990**. Cards unique: **37,376** (~614 short of registry; matches failed≈646 this phase). Lexicon: **147,540** rows.
+
+Code tweak kept for future runs: default `--workers 12`, thread-local `requests.Session` reuse + connection pool (no worker ceiling).
+
+### Post-full hybrid eval@6 (`IRAQI_RAG_DB_DIR=C:\iraqi-law-rag\lancedb`)
+
+| Mode | Cards | recall@6 | Notes |
+|---|---|---|---|
+| hybrid | off (`--no-cards`) | **12/12 (100%)** | clean solo run |
+| hybrid | on | **≥11/12 PASS, 0 FAIL** | full 12/12 repeatedly interrupted mid-suite by concurrent `eval_recall` peers / LanceDB contention; earlier mid-corpus baseline was 12/12 |
+
+**Cards A/B delta: still none on measured cases.** Alias safety from `1d362e4` remains ON. `cache/` is gitignored — do not commit `law_cards.jsonl`.
 
 ```powershell
-cd C:\iraqi-legislation-rag
-$env:PYTHONIOENCODING='utf-8'
-.\.venv\Scripts\python.exe -u build_law_cards.py --workers 4
-# log: cache/full_law_cards_2026-07-31.log (+ .err.log)
-```
-
-| Checkpoint | Unique cards | Todo remaining | Est. remaining $ |
-|---|---:|---:|---:|
-| start of full run | **2,438** | **35,584** | ~$7.8–8.0 @ $0.00022/card |
-| mid-run (~10 min) | **~3,250** | ~34.7k | ~$7.6; this-run spend ~$0.18 |
-| (update after Done line) | — | — | — |
-
-Mid-run hybrid eval@6 (Masadir `lancedb`, 12 cases): **cards on 12/12 · cards off 12/12** (delta still none).
-
-**Process:** PID **23724** (worker; parent wrapper **22748**). Log: `cache/full_law_cards_2026-07-31.log`.
-
-```powershell
-# monitor
-Get-Content C:\iraqi-legislation-rag\cache\full_law_cards_2026-07-31.log -Tail 20 -Wait
-# kill (single run — do not leave a scheduler)
+# kill if a build is still running (none expected after Done)
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'build_law_cards' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
-
-Alias safety from `1d362e4` remains ON. `cache/` is gitignored — do not commit `law_cards.jsonl`.
